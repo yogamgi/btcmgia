@@ -41,7 +41,7 @@ Do this signed in as **hrd.madinah.reload@gmail.com**.
 
 After changing code later: run `npm run build`, paste `dist/Code.gs` again, then **Deploy → Manage deployments → edit → Version: New version**, so the URL stays the same.
 
-Alternatives: keep the multi-file layout with [clasp](https://github.com/google/clasp) (`.clasp.json.example`, `clasp push`), or run `setup()` from the editor after filling in `SETUP` in `Setup.gs`.
+Alternatives: keep the multi-file layout with [clasp](https://github.com/google/clasp) (`.clasp.json.example`, `clasp push`), or run `setup()` from the editor after filling in `SETUP` in `SetupCode.gs`.
 
 The script's time zone follows the account's default; set it to `Asia/Jakarta` in Project Settings if it differs.
 

@@ -976,7 +976,7 @@ function apiAppUrl() {
   return ScriptApp.getService().getUrl();
 }
 
-// ===== Setup.gs =====
+// ===== SetupCode.gs =====
 /**
  * One-time setup. Easiest way: deploy the web app, then open it while signed in as the
  * owner account (hrd.madinah.reload@gmail.com); it shows a setup form the first time.
