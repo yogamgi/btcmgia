@@ -29,34 +29,27 @@ It is a Google Apps Script web app. All data lives in Google Drive/Sheets of the
 
 Each batch has its own folder and spreadsheet. **Dev → Batch → Buat batch baru** creates the next batch by copying the form, categories, targets, milestones and settings from an existing batch (optionally the santri list too). Reports are never copied, and nothing in an older batch is changed. Old batches can be archived: their dashboard stays viewable, their form closes.
 
-## Deploy (one time, ~10 minutes)
+## Deploy (one time)
 
 Do this signed in as **hrd.madinah.reload@gmail.com**.
 
-1. Open <https://script.google.com> → **New project**. Name it `Stage 1 - Akademi BTC`.
-2. Create files with the same names as in [`apps-script/`](apps-script) and paste their contents:
-   - Script files (`+` → Script): `Code`, `Logic`, `Setup`
-   - HTML files (`+` → HTML): `Index`, `Dev`, `Styles`, `Shared`
-   - Project Settings → tick **Show "appsscript.json" manifest file**, then paste `appsscript.json`.
+1. Open <https://script.google.com> → **New project**. Rename it `Stage 1 - Akademi BTC`.
+2. Replace everything in `Code.gs` with the contents of [`dist/Code.gs`](dist/Code.gs) (the whole app in one file) and press **Save** (Ctrl+S).
+3. **Deploy → New deployment** → gear icon → **Web app**. Execute as: **Me**. Who has access: **Anyone**. Press **Deploy**, then **Authorize access** and allow Drive and Sheets (on "Google hasn't verified this app" choose **Advanced → Go to … (unsafe)**; it is your own script).
+4. Open the **Web app URL** while signed in as the same account. The first visit shows a setup form: paste the Drive folder link for the data (or leave it empty), the first batch name (Batch 4), its start date, and the Dev password.
+5. On the Dev page (`<URL>?mode=dev`) add the santri in **Santri**, check the questions in **Form**, then share `<URL>` with the santri.
 
-   (Or with [clasp](https://github.com/google/clasp): copy `.clasp.json.example` to `.clasp.json`, put the script ID in it, then `clasp push`.)
-3. Open `Setup.gs` and fill in:
-   - `ROOT_FOLDER_ID`: the folder that should hold the data. Open the folder in Drive and copy the part after `/folders/` in the URL. Leave empty to create a folder named "Akademi BTC - Stage 1".
-   - `INITIAL_DEV_PASSWORD`: the Dev password (at least 6 characters).
-   - `FIRST_BATCH_START`: first day of Stage 1 for Batch 4, as `yyyy-MM-dd`.
-4. Choose `setup` in the function dropdown and press **Run**. Approve the permissions (Drive and Sheets). The log shows the folder link.
-5. Clear `INITIAL_DEV_PASSWORD` again and save (the password is stored as a hash).
-6. **Deploy → New deployment → Web app**. Execute as: **Me**. Who has access: **Anyone**. Copy the web app URL.
-7. Open `<URL>?mode=dev`, log in, add the santri in **Santri**, check the form in **Form**, and share `<URL>` with the santri.
+After changing code later: run `npm run build`, paste `dist/Code.gs` again, then **Deploy → Manage deployments → edit → Version: New version**, so the URL stays the same.
 
-After changing code later: **Deploy → Manage deployments → edit → Version: New version**, so the URL stays the same.
+Alternatives: keep the multi-file layout with [clasp](https://github.com/google/clasp) (`.clasp.json.example`, `clasp push`), or run `setup()` from the editor after filling in `SETUP` in `Setup.gs`.
 
-Time zone is `Asia/Jakarta` (in `appsscript.json`); change it there if needed.
+The script's time zone follows the account's default; set it to `Asia/Jakarta` in Project Settings if it differs.
 
 ## Development
 
 `apps-script/Logic.gs` holds the dashboard maths, form validation and table cleaning without any Google services, so it runs under Node:
 
 ```
-npm test
+npm test        # logic tests
+npm run build   # regenerate dist/Code.gs
 ```

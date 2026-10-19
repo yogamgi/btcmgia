@@ -22,7 +22,9 @@ var MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 function doGet(e) {
   var p = (e && e.parameter) || {};
   var page = p.mode === 'dev' ? 'Dev' : 'Index';
-  var t = HtmlService.createTemplateFromFile(page);
+  if (!props_().getProperty('SETUP_DONE')) page = 'Setup';
+  var t = template_(page);
+  t.isOwner = page === 'Setup' && isOwner_();
   t.initialBatch = String(p.batch || '').replace(/[^A-Za-z0-9_-]/g, '');
   t.initialView = p.view === 'dashboard' ? 'dashboard' : 'form';
   return t.evaluate()
@@ -31,8 +33,21 @@ function doGet(e) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// The single-file build (dist/Code.gs) defines HTML_FILES; the multi-file project uses real HTML files.
+function template_(name) {
+  return typeof HTML_FILES !== 'undefined'
+    ? HtmlService.createTemplate(HTML_FILES[name]) : HtmlService.createTemplateFromFile(name);
+}
+
 function include(name) {
-  return HtmlService.createHtmlOutputFromFile(name).getContent();
+  return typeof HTML_FILES !== 'undefined'
+    ? HTML_FILES[name] : HtmlService.createHtmlOutputFromFile(name).getContent();
+}
+
+/** True when the visitor is the account the web app runs as (anonymous visitors have no email). */
+function isOwner_() {
+  var active = Session.getActiveUser().getEmail();
+  return !!active && active === Session.getEffectiveUser().getEmail();
 }
 
 // ---------------------------------------------------------------- helpers
@@ -503,4 +518,8 @@ function apiDevUpdateBatch(token, batchId, patch) {
     }
   });
   return apiDevGetAll(token, batchId);
+}
+
+function apiAppUrl() {
+  return ScriptApp.getService().getUrl();
 }
