@@ -377,9 +377,10 @@ function sanitizeTable_(name, rows, ctx) {
       var type = sys ? sys.type : (FIELD_TYPES.indexOf(r.type) >= 0 ? r.type : 'text');
       out.push({ key: key, label: label || (sys ? sys.label : key), type: type,
         options: splitOptions_(r.options).join('\n'),
-        required: sys ? true : toBool_(r.required),
+        required: r.required === undefined ? !!sys : toBool_(r.required),
         order: 0, section: String(r.section || '').trim(), help: r.help || '',
-        active: sys ? true : (r.active === undefined ? true : toBool_(r.active)) });
+        // The dashboard cannot count a report without student, category and units, so those stay on.
+        active: (sys && key !== 'date') || r.active === undefined ? true : toBool_(r.active) });
     });
     Object.keys(SYSTEM_FIELDS).forEach(function (k) {
       if (!seen[k]) out.push({ key: k, label: SYSTEM_FIELDS[k].label, type: SYSTEM_FIELDS[k].type, options: '',

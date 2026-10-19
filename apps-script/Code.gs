@@ -474,17 +474,22 @@ function apiDevSaveReport(token, batchId, row) {
   return apiDevGetAll(token, meta.id);
 }
 
-function apiDevDeleteReport(token, batchId, id) {
+/** Deletes one report (id) or several (array of ids). */
+function apiDevDeleteReport(token, batchId, ids) {
   requireDev_(token);
   var meta = resolveBatch_(batchId);
+  var wanted = {};
+  (Array.isArray(ids) ? ids : [ids]).forEach(function (id) { wanted[String(id)] = true; });
   withLock_(function () {
     var sh = getOrCreateSheet_(SpreadsheetApp.openById(meta.spreadsheetId), 'Reports');
     var values = sh.getDataRange().getValues();
     var idCol = values[0].map(String).indexOf('id');
+    var found = 0;
+    // Bottom-up so earlier row numbers stay valid while deleting.
     for (var i = values.length - 1; i >= 1; i--) {
-      if (String(values[i][idCol]) === String(id)) { sh.deleteRow(i + 1); return; }
+      if (wanted[String(values[i][idCol])]) { sh.deleteRow(i + 1); found++; }
     }
-    throw new Error('Laporan tidak ditemukan: ' + id);
+    if (!found) throw new Error('Laporan tidak ditemukan.');
   });
   return apiDevGetAll(token, meta.id);
 }

@@ -93,7 +93,12 @@ test('form field sanitizing keeps system fields', () => {
   assert.strictEqual(out.rows[1].type, 'text');
   const units = out.rows.find(r => r.key === 'units');
   assert.strictEqual(units.type, 'number');
-  assert.strictEqual(units.required, true);
+  assert.strictEqual(units.required, false);
+  assert.strictEqual(units.active, true);
+  const off = L.sanitizeTable_('FormFields', [{ key: 'date', label: 'Tgl', active: false }, { key: 'units', label: 'U', active: false }], {});
+  assert.strictEqual(off.rows.find(r => r.key === 'date').active, false);
+  assert.strictEqual(off.rows.find(r => r.key === 'units').active, true);
+  assert.strictEqual(off.rows.find(r => r.key === 'student').required, true);
   for (const k of Object.keys(L.SYSTEM_FIELDS)) assert.ok(keys.includes(k), k);
 });
 

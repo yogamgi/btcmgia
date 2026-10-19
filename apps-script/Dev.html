@@ -86,6 +86,7 @@
         <div class="row" style="margin-bottom:12px">
           <input id="repFilter" placeholder="Cari nama / tanggal…" style="max-width:280px">
           <span class="spacer"></span>
+          <button class="btn danger" id="repBulkDel" disabled>Hapus terpilih</button>
           <button class="btn" id="repAdd">+ Tambah laporan</button>
         </div>
         <div class="table-wrap" id="reportTable"></div></div></div>
@@ -219,23 +220,24 @@
     // ------------------------------------------------------------ table editors
     var FIELD_TYPES = [['text', 'Jawaban singkat'], ['textarea', 'Paragraf'], ['number', 'Angka'], ['date', 'Tanggal'], ['select', 'Dropdown'],
       ['radio', 'Pilihan ganda'], ['checkbox', 'Kotak centang'], ['student', 'Nama santri'], ['category', 'Kategori perangkat'], ['file', 'Upload file']];
+    // Form questions the dashboard reads. Their key and type are fixed; student/category/units also stay active.
     var SYSTEM_KEYS = ['date', 'student', 'category', 'units'];
+    var ALWAYS_ACTIVE = ['student', 'category', 'units'];
 
     function columnsFor(name) {
       if (name === 'Settings') return [{ key: 'key', label: 'Key' }, { key: 'value', label: 'Nilai', type: 'textarea' }, { key: 'description', label: 'Keterangan' }];
-      if (name === 'Categories') return [{ key: 'label', label: 'Nama kategori' }, { key: 'key', label: 'Key (otomatis)' },
+      if (name === 'Categories') return [{ key: 'label', label: 'Nama kategori' }, { key: 'key', label: 'Key' },
         { key: 'defaultTarget', label: 'Target default', type: 'number' }, { key: 'active', label: 'Aktif', type: 'bool' }];
       if (name === 'Students') {
-        var cols = [{ key: 'id', label: 'ID (otomatis)', readonly: true }, { key: 'name', label: 'Nama lengkap' }, { key: 'nickname', label: 'Panggilan' },
-          { key: 'active', label: 'Aktif', type: 'bool' }];
+        var cols = [{ key: 'name', label: 'Nama lengkap' }, { key: 'nickname', label: 'Panggilan' }, { key: 'active', label: 'Aktif', type: 'bool' }];
         all.tables.Categories.rows.forEach(function (c) {
           if (String(c.active) !== 'false') cols.push({ key: 'target:' + c.key, label: 'Target ' + c.label, type: 'number', placeholder: String(c.defaultTarget) });
         });
-        cols.push({ key: 'notes', label: 'Catatan' });
+        cols.push({ key: 'notes', label: 'Catatan' }, { key: 'id', label: 'ID', title: 'Dipakai laporan untuk mengenali santri. Kosongkan untuk dibuat otomatis.' });
         return cols;
       }
-      if (name === 'FormFields') return [{ key: 'label', label: 'Pertanyaan' }, { key: 'key', label: 'Key (otomatis)' },
-        { key: 'type', label: 'Tipe', type: 'select', options: FIELD_TYPES }, { key: 'options', label: 'Pilihan', type: 'textarea' },
+      if (name === 'FormFields') return [{ key: 'label', label: 'Pertanyaan' }, { key: 'key', label: 'Key' },
+        { key: 'type', label: 'Tipe', type: 'select', options: FIELD_TYPES }, { key: 'options', label: 'Pilihan (1 per baris)', type: 'textarea' },
         { key: 'required', label: 'Wajib', type: 'bool' }, { key: 'section', label: 'Section' }, { key: 'help', label: 'Petunjuk' },
         { key: 'active', label: 'Aktif', type: 'bool' }];
       if (name === 'Milestones') return [{ key: 'day', label: 'Hari ke', type: 'number' }, { key: 'units', label: 'Jml unit kumulatif', type: 'number' }];
@@ -255,60 +257,234 @@
 
     function isTrue(v) { return v === true || String(v).toLowerCase() === 'true'; }
 
-    function cellInput(col, row) {
+    /** Cells that cannot change for a row, with the reason shown on hover. */
+    function lockReason(name, col, row) {
+      if (name !== 'FormFields' || SYSTEM_KEYS.indexOf(row.key) < 0) return '';
+      if (col.key === 'key' || col.key === 'type') return 'Dipakai dashboard, tidak bisa diubah';
+      if (col.key === 'active' && ALWAYS_ACTIVE.indexOf(row.key) >= 0) return 'Dashboard butuh pertanyaan ini, jadi selalu aktif';
+      return '';
+    }
+
+    function cellInput(name, col, row) {
       var v = row[col.key] == null ? '' : row[col.key];
-      var locked = col.readonly || (col.lockSystem && SYSTEM_KEYS.indexOf(row.key) >= 0);
-      if (col.type === 'bool') return '<input type="checkbox" data-k="' + esc(col.key) + '"' + (isTrue(v) ? ' checked' : '') + '>';
+      var lock = lockReason(name, col, row);
+      var attrs = ' data-k="' + esc(col.key) + '"' + (lock ? ' disabled title="' + esc(lock) + '"' : (col.title ? ' title="' + esc(col.title) + '"' : ''));
+      if (col.type === 'bool') return '<input type="checkbox"' + attrs + (isTrue(v) || (lock && col.key === 'active') ? ' checked' : '') + '>';
       if (col.type === 'select') {
-        return '<select data-k="' + esc(col.key) + '">' + col.options.map(function (o) {
+        return '<select' + attrs + '>' + col.options.map(function (o) {
           return '<option value="' + esc(o[0]) + '"' + (o[0] === v ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
         }).join('') + '</select>';
       }
-      if (col.type === 'textarea') return '<textarea data-k="' + esc(col.key) + '" rows="1">' + esc(v) + '</textarea>';
-      return '<input data-k="' + esc(col.key) + '"' + (col.type === 'number' ? ' type="number"' : '') +
-        (col.placeholder ? ' placeholder="' + esc(col.placeholder) + '"' : '') + ' value="' + esc(v) + '"' + (locked ? ' readonly' : '') + '>';
+      if (col.type === 'textarea') return '<textarea' + attrs + ' rows="1">' + esc(v) + '</textarea>';
+      return '<input' + attrs + (col.type === 'number' ? ' type="number"' : '') +
+        (col.placeholder ? ' placeholder="' + esc(col.placeholder) + '"' : '') + ' value="' + esc(v) + '">';
     }
 
+    function bulkValueInput(col) {
+      if (!col) return '';
+      if (col.type === 'bool') return '<select data-bulk="value"><option value="true">Ya / aktif</option><option value="false">Tidak / nonaktif</option></select>';
+      if (col.type === 'select') return '<select data-bulk="value">' + col.options.map(function (o) { return '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>';
+      return '<input data-bulk="value"' + (col.type === 'number' ? ' type="number"' : '') + ' placeholder="Nilai baru (kosongkan untuk menghapus isi)">';
+    }
+
+    function compareValues(a, b, col) {
+      if (col.type === 'bool') return (isTrue(a) ? 1 : 0) - (isTrue(b) ? 1 : 0);
+      if (col.type === 'number') {
+        var na = a === '' || a == null ? -Infinity : Number(a), nb = b === '' || b == null ? -Infinity : Number(b);
+        return na - nb;
+      }
+      return String(a == null ? '' : a).localeCompare(String(b == null ? '' : b), 'id', { numeric: true, sensitivity: 'base' });
+    }
+
+    /**
+     * Editable table: every cell is an input, rows have checkboxes for bulk delete / duplicate / edit,
+     * column headers sort, and nothing is written until "Simpan".
+     */
     function tableEditor(el, name, cols, rows) {
       rows = rows.map(function (r) { return Object.assign({}, r); });
-      if (name === 'FormFields') {
-        rows.sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
-        cols.forEach(function (c) { if (c.key === 'key' || c.key === 'type') c.lockSystem = true; });
-      }
+      if (name === 'FormFields') rows.sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
+      var selected = [];   // parallel to rows
+      var sort = { key: '', dir: 1 };
+      var dirty = false;
+      var bulkCol = cols[0].key;
+
+      function selCount() { return selected.filter(Boolean).length; }
+
       function draw() {
-        var html = '<div class="table-wrap"><table class="editor"><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') +
-          '<th></th></tr></thead><tbody>';
+        while (selected.length < rows.length) selected.push(false);
+        selected.length = rows.length;
+        var n = selCount();
+        var col = cols.filter(function (c) { return c.key === bulkCol; })[0];
+        var html = '<div class="bulkbar row' + (n ? '' : ' muted') + '">' +
+          '<strong>' + n + ' dipilih</strong>' +
+          '<button class="btn sm danger" data-m="bulkdel"' + (n ? '' : ' disabled') + '>Hapus terpilih</button>' +
+          '<button class="btn sm" data-m="bulkdup"' + (n ? '' : ' disabled') + '>Duplikat</button>' +
+          '<span class="row">Ubah kolom <select data-bulk="col" style="width:auto">' + cols.map(function (c) {
+            return '<option value="' + esc(c.key) + '"' + (c.key === bulkCol ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+          }).join('') + '</select> menjadi ' + bulkValueInput(col) +
+          '<button class="btn sm" data-m="bulkset"' + (n ? '' : ' disabled') + '>Terapkan</button></span>' +
+          '</div>';
+        html += '<div class="table-wrap"><table class="editor"><thead><tr>' +
+          '<th class="sel"><input type="checkbox" data-m="selall" title="Pilih semua"' + (n && n === rows.length ? ' checked' : '') + '></th><th>No</th>' +
+          cols.map(function (c) {
+            var mark = sort.key === c.key ? (sort.dir > 0 ? ' ▲' : ' ▼') : '';
+            return '<th class="sortable" data-sort="' + esc(c.key) + '" title="Klik untuk mengurutkan">' + esc(c.label) + mark + '</th>';
+          }).join('') + '<th></th></tr></thead><tbody>';
         rows.forEach(function (r, i) {
           var sys = name === 'FormFields' && SYSTEM_KEYS.indexOf(r.key) >= 0;
-          html += '<tr data-i="' + i + '">' + cols.map(function (c) {
-            if (sys && c.key === 'type') return '<td><span class="muted">' + esc(r.type) + ' (wajib)</span></td>';
-            if (sys && (c.key === 'required' || c.key === 'active')) return '<td><span class="muted">✓</span></td>';
-            return '<td>' + cellInput(c, r) + '</td>';
-          }).join('') +
+          html += '<tr data-i="' + i + '"' + (selected[i] ? ' class="selected"' : '') + '>' +
+            '<td class="sel"><input type="checkbox" data-sel' + (selected[i] ? ' checked' : '') + '></td><td class="muted">' + (i + 1) + '</td>' +
+            cols.map(function (c) { return '<td>' + cellInput(name, c, r) + '</td>'; }).join('') +
             '<td class="actions"><button class="btn sm" data-m="up" title="Naik">↑</button><button class="btn sm" data-m="down" title="Turun">↓</button>' +
             (sys ? '' : '<button class="btn sm danger" data-m="del" title="Hapus">✕</button>') + '</td></tr>';
         });
-        html += '</tbody></table></div><div class="row" style="margin-top:12px"><button class="btn" data-m="add">+ Tambah baris</button>' +
-          '<span class="spacer"></span><button class="btn primary" data-m="save">Simpan</button></div>';
+        if (!rows.length) html += '<tr><td colspan="' + (cols.length + 3) + '" class="muted">Belum ada data. Klik "+ Tambah baris".</td></tr>';
+        html += '</tbody></table></div><div class="row" style="margin-top:12px">' +
+          '<button class="btn" data-m="add">+ Tambah baris</button>' +
+          '<button class="btn" data-m="addmany">+ Tambah banyak</button>' +
+          '<span class="spacer"></span>' + '<span class="muted' + (dirty ? '' : ' hidden') + '" data-dirty>Ada perubahan yang belum disimpan</span>' +
+          '<button class="btn primary" data-m="save">Simpan</button></div>' +
+          '<div class="card hidden" data-panel-many style="margin-top:12px">' + manyHelp() +
+          '<textarea data-many rows="8" style="margin:8px 0"></textarea>' +
+          '<div class="row"><button class="btn primary" data-m="addmanygo">Tambahkan ke tabel</button><button class="btn" data-m="addmanyclose">Batal</button></div></div>';
         el.innerHTML = html;
       }
+
+      function manyHelp() {
+        var keys = cols.filter(function (c) { return !lockReason(name, c, {}); }).map(function (c) { return c.label; });
+        if (name === 'Students') return '<strong>Tambah banyak santri</strong><p class="muted">Tempel daftar nama, satu santri per baris. ' +
+          'Boleh ditambah panggilan dipisah koma, titik koma, atau tab (bisa langsung copy dari Excel/Sheets). Contoh:<br><code>Abdul Latif; Abdul</code><br><code>Alfiyan Ardiansyah</code></p>';
+        return '<strong>Tambah banyak baris</strong><p class="muted">Satu baris per data, kolom dipisah titik koma atau tab, urutannya: ' + esc(keys.join(' ; ')) + '.</p>';
+      }
+
       function collect() {
-        el.querySelectorAll('tbody tr').forEach(function (tr) {
-          var r = rows[Number(tr.getAttribute('data-i'))];
+        el.querySelectorAll('tbody tr[data-i]').forEach(function (tr) {
+          var i = Number(tr.getAttribute('data-i')), r = rows[i];
           tr.querySelectorAll('[data-k]').forEach(function (inp) {
+            if (inp.disabled) return;
             r[inp.getAttribute('data-k')] = inp.type === 'checkbox' ? inp.checked : inp.value;
           });
+          var s = tr.querySelector('[data-sel]');
+          selected[i] = !!(s && s.checked);
         });
       }
+
+      function parseMany(text) {
+        var editable = cols.filter(function (c) { return !lockReason(name, c, {}); });
+        var order = name === 'Students' ? [cols[0], cols[1]] : editable;
+        var seen = {};
+        rows.forEach(function (r) { if (r.name) seen[String(r.name).trim().toLowerCase()] = true; });
+        var added = 0, skipped = 0;
+        text.split(/\r?\n/).forEach(function (line) {
+          if (!line.trim()) return;
+          var parts = line.split(/\t|;|,(?=\s*[^,]*$)/).map(function (p) { return p.trim(); });
+          if (name !== 'Students') parts = line.split(/\t|;/).map(function (p) { return p.trim(); });
+          var r = newRowFor(name);
+          order.forEach(function (c, j) {
+            if (parts[j] === undefined || parts[j] === '') return;
+            r[c.key] = c.type === 'bool' ? /^(1|ya|y|yes|true|aktif)$/i.test(parts[j]) : parts[j];
+          });
+          if (name === 'Students') {
+            var k = String(r.name || '').toLowerCase();
+            if (!k || seen[k]) { skipped++; return; }
+            seen[k] = true;
+          }
+          rows.push(r); selected.push(false); added++;
+        });
+        return { added: added, skipped: skipped };
+      }
+
+      el.onchange = function (e) {
+        var t = e.target;
+        if (t.getAttribute('data-bulk') === 'col') { collect(); bulkCol = t.value; draw(); return; }
+        if (t.hasAttribute('data-sel')) {
+          collect();
+          var tr = t.closest('tr');
+          tr.classList.toggle('selected', t.checked);
+          refreshBar();
+          return;
+        }
+        if (t.getAttribute('data-m') === 'selall') {
+          collect();
+          for (var i = 0; i < rows.length; i++) selected[i] = t.checked;
+          draw();
+          return;
+        }
+        if (t.hasAttribute('data-k')) { dirty = true; el.querySelector('[data-dirty]').classList.remove('hidden'); }
+      };
+
+      function refreshBar() {
+        var n = selCount();
+        el.querySelector('.bulkbar strong').textContent = n + ' dipilih';
+        el.querySelector('.bulkbar').classList.toggle('muted', !n);
+        el.querySelectorAll('[data-m="bulkdel"],[data-m="bulkdup"],[data-m="bulkset"]').forEach(function (b) { b.disabled = !n; });
+        var box = el.querySelector('[data-m="selall"]');
+        if (box) box.checked = n > 0 && n === rows.length;
+      }
+
       el.onclick = function (e) {
-        var b = e.target.closest('[data-m]');
+        var th = e.target.closest('th[data-sort]');
+        if (th) {
+          collect();
+          var key = th.getAttribute('data-sort');
+          sort = { key: key, dir: sort.key === key ? -sort.dir : 1 };
+          var col = cols.filter(function (c) { return c.key === key; })[0];
+          var idx = rows.map(function (r, i) { return i; });
+          idx.sort(function (a, b) { return compareValues(rows[a][key], rows[b][key], col) * sort.dir || a - b; });
+          rows = idx.map(function (i) { return rows[i]; });
+          selected = idx.map(function (i) { return selected[i]; });
+          dirty = true;
+          draw();
+          return;
+        }
+        var b = e.target.closest('button[data-m]');
         if (!b) return;
         collect();
         var m = b.getAttribute('data-m'), tr = b.closest('tr'), i = tr ? Number(tr.getAttribute('data-i')) : -1;
-        if (m === 'add') rows.push(newRowFor(name));
-        if (m === 'del') { if (!confirm('Hapus baris ini?')) return; rows.splice(i, 1); }
-        if (m === 'up' && i > 0) rows.splice(i - 1, 0, rows.splice(i, 1)[0]);
-        if (m === 'down' && i < rows.length - 1) rows.splice(i + 1, 0, rows.splice(i, 1)[0]);
+        var keep = function (r, j) { return !selected[j] || (name === 'FormFields' && SYSTEM_KEYS.indexOf(r.key) >= 0); };
+        if (m === 'add') { rows.push(newRowFor(name)); selected.push(false); dirty = true; }
+        if (m === 'addmany') { el.querySelector('[data-panel-many]').classList.remove('hidden'); el.querySelector('[data-many]').focus(); return; }
+        if (m === 'addmanyclose') { el.querySelector('[data-panel-many]').classList.add('hidden'); return; }
+        if (m === 'addmanygo') {
+          var res = parseMany(el.querySelector('[data-many]').value);
+          if (res.added) dirty = true;
+          toast(res.added + ' baris ditambahkan' + (res.skipped ? ', ' + res.skipped + ' dilewati (nama kosong atau sudah ada)' : '') + '. Klik Simpan untuk menyimpan.');
+        }
+        if (m === 'del') { if (!confirm('Hapus baris ini?')) return; rows.splice(i, 1); selected.splice(i, 1); dirty = true; }
+        if (m === 'bulkdel') {
+          var n = selCount();
+          if (!confirm('Hapus ' + n + ' baris terpilih? Perubahan baru tersimpan setelah klik Simpan.')) return;
+          var keptSel = [];
+          rows = rows.filter(function (r, j) { var k = keep(r, j); if (k) keptSel.push(false); return k; });
+          selected = keptSel;
+          dirty = true;
+        }
+        if (m === 'bulkdup') {
+          var copies = rows.filter(function (r, j) { return selected[j]; }).map(function (r) {
+            var c = Object.assign({}, r);
+            delete c.id;
+            if (name === 'FormFields' || name === 'Categories') { c.key = ''; c.label = (c.label || '') + ' (salinan)'; }
+            if (name === 'Students') c.name = (c.name || '') + ' (salinan)';
+            return c;
+          });
+          rows = rows.concat(copies);
+          selected = selected.map(function () { return false; }).concat(copies.map(function () { return true; }));
+          dirty = true;
+        }
+        if (m === 'bulkset') {
+          var col = cols.filter(function (c) { return c.key === bulkCol; })[0];
+          var inp = el.querySelector('[data-bulk="value"]');
+          var val = col.type === 'bool' ? inp.value === 'true' : inp.value;
+          var changed = 0;
+          rows.forEach(function (r, j) {
+            if (!selected[j] || lockReason(name, col, r)) return;
+            r[col.key] = val; changed++;
+          });
+          dirty = true;
+          toast(changed + ' baris diubah. Klik Simpan untuk menyimpan.');
+        }
+        if (m === 'up' && i > 0) { rows.splice(i - 1, 0, rows.splice(i, 1)[0]); selected.splice(i - 1, 0, selected.splice(i, 1)[0]); dirty = true; }
+        if (m === 'down' && i < rows.length - 1) { rows.splice(i + 1, 0, rows.splice(i, 1)[0]); selected.splice(i + 1, 0, selected.splice(i, 1)[0]); dirty = true; }
         if (m === 'save') {
           b.disabled = true; b.textContent = 'Menyimpan…';
           devCall('apiDevSaveTable', all.batch.id, name, rows).then(function (d) { apply(d); toast('Tersimpan.'); })
@@ -322,6 +498,7 @@
 
     // ------------------------------------------------------------ reports
     var editingReport = null;
+    var selectedReports = {};
     function reportColumns() {
       var fields = all.tables.FormFields.rows.slice().sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
       var keys = fields.map(function (f) { return f.key; });
@@ -365,21 +542,54 @@
       var rows = all.tables.Reports.rows.slice().reverse();
       if (editingReport === 'new') rows.unshift({ id: '' });
       if (q) rows = rows.filter(function (r) { return !r.id || JSON.stringify(r).toLowerCase().indexOf(q) >= 0; });
-      var html = '<table class="editor"><thead><tr><th>Dikirim</th>' + cols.keys.map(function (k) { return '<th>' + esc(cols.labels[k] || k) + '</th>'; }).join('') +
+      var html = '<table class="editor"><thead><tr><th class="sel"><input type="checkbox" id="repSelAll" title="Pilih semua yang tampil"></th><th>Dikirim</th>' + cols.keys.map(function (k) { return '<th>' + esc(cols.labels[k] || k) + '</th>'; }).join('') +
         '<th></th></tr></thead><tbody>';
       rows.slice(0, 300).forEach(function (r) {
         var editing = (editingReport === 'new' && !r.id) || (r.id && editingReport === r.id);
-        html += '<tr data-id="' + esc(r.id) + '"><td class="muted">' + esc(r.submittedAt || 'baru') + '</td>' + cols.keys.map(function (k) {
+        html += '<tr data-id="' + esc(r.id) + '"' + (selectedReports[r.id] ? ' class="selected"' : '') + '><td class="sel">' +
+          (r.id ? '<input type="checkbox" data-rsel' + (selectedReports[r.id] ? ' checked' : '') + '>' : '') + '</td><td class="muted">' + esc(r.submittedAt || 'baru') + '</td>' + cols.keys.map(function (k) {
           return '<td>' + (editing ? reportCellEditor(k, r[k] == null ? '' : r[k], cols.fields) : displayValue(k, r[k] == null ? '' : r[k], cols.fields)) + '</td>';
         }).join('') + '<td class="actions">' + (editing
           ? '<button class="btn sm primary" data-r="save">Simpan</button><button class="btn sm" data-r="cancel">Batal</button>'
           : '<button class="btn sm" data-r="edit">Edit</button><button class="btn sm danger" data-r="del">Hapus</button>') + '</td></tr>';
       });
-      if (!rows.length) html += '<tr><td colspan="' + (cols.keys.length + 2) + '" class="muted">Belum ada laporan.</td></tr>';
+      if (!rows.length) html += '<tr><td colspan="' + (cols.keys.length + 3) + '" class="muted">Belum ada laporan.</td></tr>';
       html += '</tbody></table>';
       if (rows.length > 300) html += '<p class="muted">Menampilkan 300 laporan terbaru. Gunakan pencarian atau buka spreadsheet untuk data lengkap.</p>';
       document.getElementById('reportTable').innerHTML = html;
+      updateReportBulk();
     }
+
+    function updateReportBulk() {
+      var n = Object.keys(selectedReports).filter(function (k) { return selectedReports[k]; }).length;
+      var b = document.getElementById('repBulkDel');
+      b.disabled = !n;
+      b.textContent = n ? 'Hapus ' + n + ' terpilih' : 'Hapus terpilih';
+    }
+
+    document.getElementById('reportTable').addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.id === 'repSelAll') {
+        document.querySelectorAll('#reportTable [data-rsel]').forEach(function (c) {
+          c.checked = t.checked;
+          selectedReports[c.closest('tr').getAttribute('data-id')] = t.checked;
+          c.closest('tr').classList.toggle('selected', t.checked);
+        });
+      } else if (t.hasAttribute('data-rsel')) {
+        selectedReports[t.closest('tr').getAttribute('data-id')] = t.checked;
+        t.closest('tr').classList.toggle('selected', t.checked);
+      } else return;
+      updateReportBulk();
+    });
+
+    document.getElementById('repBulkDel').addEventListener('click', function () {
+      var ids = Object.keys(selectedReports).filter(function (k) { return selectedReports[k]; });
+      if (!ids.length || !confirm('Hapus ' + ids.length + ' laporan terpilih? Tidak bisa dibatalkan.')) return;
+      var btn = this;
+      btn.disabled = true;
+      devCall('apiDevDeleteReport', all.batch.id, ids).then(function (d) { selectedReports = {}; apply(d); toast(ids.length + ' laporan dihapus.'); })
+        .catch(function (err) { toast(err.message); btn.disabled = false; });
+    });
 
     document.getElementById('repFilter').addEventListener('input', renderReports);
     document.getElementById('repAdd').addEventListener('click', function () { editingReport = 'new'; renderReports(); });
