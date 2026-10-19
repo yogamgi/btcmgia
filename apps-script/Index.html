@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles'); ?>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Stage 1 - Akademi BTC</h1>
+      <div class="sub" id="subtitle">Boarding Technician Camp</div>
+    </div>
+    <label class="row"><span class="muted">Batch</span>
+      <select id="batchSelect" style="width:auto"></select>
+    </label>
+  </header>
+  <main>
+    <nav class="tabs" id="tabs">
+      <button data-tab="form" class="active">Isi Laporan</button>
+      <button data-tab="dashboard">Dashboard</button>
+    </nav>
+
+    <section data-panel="form">
+      <div class="card" style="max-width:720px">
+        <h2 id="formTitle">Laporan</h2>
+        <p class="muted" id="formDesc"></p>
+        <div id="formMsg"></div>
+        <form id="reportForm" novalidate><div class="loading">Memuat form…</div></form>
+      </div>
+    </section>
+
+    <section data-panel="dashboard" class="hidden">
+      <h2 id="dashTitle" style="margin:0 0 12px">Dashboard Santri</h2>
+      <div id="dashboard"><div class="loading">Memuat dashboard…</div></div>
+    </section>
+  </main>
+  <div id="toast"></div>
+
+  <?!= include('Shared'); ?>
+  <script>
+    var INITIAL_BATCH = '<?= initialBatch ?>';
+    var pub = null, dash = null, dashState = { selected: '' }, currentTab = 'form';
+
+    setTabs(document.getElementById('tabs'), function (tab) {
+      currentTab = tab;
+      if (tab === 'dashboard') loadDashboard();
+    });
+
+    document.getElementById('batchSelect').addEventListener('change', function (e) {
+      dashState.selected = '';
+      loadPublic(e.target.value);
+    });
+
+    function loadPublic(batchId) {
+      document.getElementById('reportForm').innerHTML = '<div class="loading">Memuat form…</div>';
+      call('apiGetPublic', batchId || '').then(function (p) {
+        pub = p;
+        var sel = document.getElementById('batchSelect');
+        sel.innerHTML = p.batches.map(function (b) {
+          return '<option value="' + esc(b.id) + '"' + (b.id === p.batch.id ? ' selected' : '') + '>' +
+            esc(b.name) + (b.status === 'archived' ? ' (arsip)' : '') + '</option>';
+        }).join('');
+        document.getElementById('subtitle').textContent = (p.settings.stageName || 'Stage 1') + ' · ' + p.settings.batchName;
+        document.getElementById('formTitle').textContent = p.settings.formTitle;
+        document.getElementById('formDesc').textContent = p.settings.formDescription;
+        document.getElementById('dashTitle').textContent = p.settings.dashboardTitle;
+        renderForm();
+        dash = null;
+        if (currentTab === 'dashboard') loadDashboard();
+      }).catch(showFatal);
+    }
+
+    function showFatal(e) {
+      document.getElementById('reportForm').innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+    }
+
+    function renderForm() {
+      var form = document.getElementById('reportForm');
+      document.getElementById('formMsg').innerHTML = '';
+      if (!pub.settings.formOpen) {
+        form.innerHTML = '<div class="notice info">Form untuk batch ini sedang ditutup.</div>';
+        return;
+      }
+      var html = '', section = null;
+      pub.fields.forEach(function (f) {
+        if (f.section && f.section !== section) { section = f.section; html += '<h3>' + esc(section) + '</h3>'; }
+        html += fieldHtml(f);
+      });
+      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim laporan</button></div>';
+      form.innerHTML = html;
+    }
+
+    function fieldHtml(f) {
+      var id = 'f_' + f.key, name = esc(f.key), req = f.required ? ' required' : '';
+      var input = '';
+      switch (f.type) {
+        case 'textarea': input = '<textarea id="' + id + '" name="' + name + '"' + req + '></textarea>'; break;
+        case 'number': input = '<input type="number" inputmode="numeric" min="0" step="1" id="' + id + '" name="' + name + '"' + req + '>'; break;
+        case 'date': input = '<input type="date" id="' + id + '" name="' + name + '" value="' + esc(pub.today) + '"' + req + '>'; break;
+        case 'student':
+          input = '<select id="' + id + '" name="' + name + '"' + req + '><option value="">— Pilih nama —</option>' +
+            pub.students.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>'; }).join('') + '</select>';
+          break;
+        case 'select':
+          input = '<select id="' + id + '" name="' + name + '"' + req + '><option value="">— Pilih —</option>' +
+            f.options.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select>';
+          break;
+        case 'category':
+        case 'radio':
+          var opts = f.type === 'category' ? pub.categories.map(function (c) { return { v: c.key, l: c.label }; })
+            : f.options.map(function (o) { return { v: o, l: o }; });
+          input = opts.map(function (o) {
+            return '<label class="choice"><input type="radio" name="' + name + '" value="' + esc(o.v) + '"> ' + esc(o.l) + '</label>';
+          }).join('');
+          break;
+        case 'checkbox':
+          input = f.options.map(function (o) {
+            return '<label class="choice"><input type="checkbox" name="' + name + '" value="' + esc(o) + '"> ' + esc(o) + '</label>';
+          }).join('');
+          break;
+        case 'file': input = '<input type="file" id="' + id + '" name="' + name + '" accept="image/*,application/pdf">'; break;
+        default: input = '<input type="text" id="' + id + '" name="' + name + '"' + req + '>';
+      }
+      var wrap = (f.type === 'radio' || f.type === 'category' || f.type === 'checkbox') ? 'div' : 'label';
+      return '<' + wrap + ' class="field"><span class="lbl">' + esc(f.label) + (f.required ? ' <span class="req">*</span>' : '') + '</span>' +
+        (f.help ? '<span class="help">' + esc(f.help) + '</span>' : '') + input + '</' + wrap + '>';
+    }
+
+    function readFile(file) {
+      return new Promise(function (resolve, reject) {
+        if (file.size > 10 * 1024 * 1024) return reject(new Error('File "' + file.name + '" lebih dari 10 MB.'));
+        var r = new FileReader();
+        r.onload = function () { resolve({ name: file.name, mimeType: file.type, data: String(r.result).split(',')[1] }); };
+        r.onerror = function () { reject(new Error('Gagal membaca file.')); };
+        r.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById('reportForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var form = e.target, answers = {}, missing = [], pending = [];
+      pub.fields.forEach(function (f) {
+        if (f.type === 'checkbox') {
+          answers[f.key] = Array.prototype.map.call(form.querySelectorAll('input[name="' + f.key + '"]:checked'), function (x) { return x.value; });
+          if (f.required && !answers[f.key].length) missing.push(f.label);
+        } else if (f.type === 'radio' || f.type === 'category') {
+          var c = form.querySelector('input[name="' + f.key + '"]:checked');
+          answers[f.key] = c ? c.value : '';
+          if (f.required && !c) missing.push(f.label);
+        } else if (f.type === 'file') {
+          var file = form.elements[f.key].files[0];
+          if (f.required && !file) missing.push(f.label);
+          if (file) pending.push(readFile(file).then(function (v) { answers[f.key] = v; }));
+        } else {
+          answers[f.key] = form.elements[f.key].value;
+          if (f.required && !String(answers[f.key]).trim()) missing.push(f.label);
+        }
+      });
+      var msg = document.getElementById('formMsg');
+      if (missing.length) {
+        msg.innerHTML = '<div class="notice err">Wajib diisi: ' + esc(missing.join(', ')) + '</div>';
+        msg.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+      var btn = document.getElementById('submitBtn');
+      btn.disabled = true; btn.textContent = 'Mengirim…';
+      Promise.all(pending).then(function () {
+        return call('apiSubmitReport', pub.batch.id, answers);
+      }).then(function () {
+        msg.innerHTML = '<div class="notice ok">' + esc(pub.settings.successMessage) + '</div>';
+        // Keep name and date so the same santri can quickly send another report.
+        var keep = {};
+        ['student', 'date'].forEach(function (k) { if (form.elements[k]) keep[k] = form.elements[k].value; });
+        form.reset();
+        Object.keys(keep).forEach(function (k) { form.elements[k].value = keep[k]; });
+        dash = null;
+        msg.scrollIntoView({ behavior: 'smooth' });
+      }).catch(function (err) {
+        msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>';
+        msg.scrollIntoView({ behavior: 'smooth' });
+      }).then(function () {
+        btn.disabled = false; btn.textContent = 'Kirim laporan';
+      });
+    });
+
+    function loadDashboard() {
+      var el = document.getElementById('dashboard');
+      if (!pub) return;
+      if (dash && dash.batch.id === pub.batch.id) { renderDashboard(el, dash, dashState); return; }
+      el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
+      call('apiGetDashboard', pub.batch.id).then(function (d) {
+        dash = d;
+        renderDashboard(el, d, dashState);
+      }).catch(function (e) { el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
+    }
+
+    if ('<?= initialView ?>' === 'dashboard') document.querySelector('[data-tab="dashboard"]').click();
+    loadPublic(INITIAL_BATCH);
+  </script>
+</body>
+</html>

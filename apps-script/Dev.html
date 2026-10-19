@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles'); ?>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Stage 1 - Akademi BTC · Dev</h1>
+      <div class="sub" id="subtitle">Panel developer</div>
+    </div>
+    <div class="row hidden" id="topActions">
+      <label class="row"><span class="muted">Batch</span><select id="batchSelect" style="width:auto"></select></label>
+      <a class="btn sm" id="lnkSheet" target="_blank">Spreadsheet</a>
+      <a class="btn sm" id="lnkFolder" target="_blank">Folder</a>
+      <a class="btn sm" id="lnkGuest" target="_blank">Halaman Guest</a>
+      <button class="btn sm" id="logoutBtn">Keluar</button>
+    </div>
+  </header>
+  <main>
+    <section id="loginView" class="card" style="max-width:380px;margin:40px auto">
+      <h2>Masuk sebagai Dev</h2>
+      <div id="loginMsg"></div>
+      <form id="loginForm">
+        <label class="field"><span class="lbl">Password</span><input type="password" id="pw" autocomplete="current-password" required></label>
+        <button class="btn primary" type="submit">Masuk</button>
+      </form>
+    </section>
+
+    <section id="appView" class="hidden">
+      <nav class="tabs" id="tabs">
+        <button data-tab="batches" class="active">Batch</button>
+        <button data-tab="Settings">Pengaturan</button>
+        <button data-tab="Students">Santri</button>
+        <button data-tab="Categories">Kategori &amp; Target</button>
+        <button data-tab="FormFields">Form</button>
+        <button data-tab="Milestones">Milestone</button>
+        <button data-tab="Reports">Laporan</button>
+        <button data-tab="preview">Dashboard</button>
+      </nav>
+
+      <div data-panel="batches">
+        <div class="card">
+          <h2>Daftar batch</h2>
+          <p class="muted">Setiap batch punya folder dan spreadsheet sendiri, jadi data batch lain tidak ikut berubah.</p>
+          <div class="table-wrap" id="batchTable"></div>
+        </div>
+        <div class="card" style="max-width:640px">
+          <h2>Buat batch baru</h2>
+          <label class="field"><span class="lbl">Nama batch</span><input id="nbName" placeholder="Batch 5"></label>
+          <label class="field"><span class="lbl">Hari pertama Stage 1</span><input id="nbStart" type="date"></label>
+          <label class="field"><span class="lbl">Salin pengaturan dari</span>
+            <span class="help">Form, kategori, target, milestone, dan pengaturan disalin. Laporan tidak pernah disalin.</span>
+            <select id="nbSource"></select></label>
+          <label class="choice"><input type="checkbox" id="nbStudents"> Salin juga daftar santri</label>
+          <div class="row" style="margin-top:12px"><button class="btn primary" id="nbCreate">Buat batch</button></div>
+        </div>
+        <div class="card" style="max-width:640px">
+          <h2>Password Dev</h2>
+          <div class="row"><input type="password" id="newPw" placeholder="Password baru (min 6 karakter)" style="max-width:320px">
+            <button class="btn" id="pwBtn">Ganti password</button></div>
+        </div>
+      </div>
+
+      <div data-panel="Settings" class="hidden"><div class="card"><h2>Pengaturan batch</h2>
+        <p class="muted">Judul form, deskripsi, tanggal mulai, buka/tutup form, judul dan pengumuman dashboard. Tambah baris baru untuk catatan sendiri.</p>
+        <div id="ed_Settings"></div></div></div>
+      <div data-panel="Students" class="hidden"><div class="card"><h2>Santri</h2>
+        <p class="muted">Kosongkan kolom target untuk memakai target default kategori. Santri nonaktif tidak muncul di form, tapi laporannya tetap dihitung.</p>
+        <div id="ed_Students"></div></div></div>
+      <div data-panel="Categories" class="hidden"><div class="card"><h2>Kategori perangkat &amp; target default</h2>
+        <p class="muted">Kategori menjadi pilihan "Jenis Perangkat" di form dan kolom Done/Target/Achievement di dashboard.</p>
+        <div id="ed_Categories"></div></div></div>
+      <div data-panel="FormFields" class="hidden"><div class="card"><h2>Pertanyaan form</h2>
+        <p class="muted">Kolom "section" mengelompokkan pertanyaan. Pilihan untuk select/radio/checkbox ditulis satu per baris.
+          Pertanyaan tanggal, nama santri, jenis perangkat, dan jumlah unit dipakai dashboard sehingga tidak bisa dihapus (label dan urutannya bisa diubah).
+          Menghapus pertanyaan tidak menghapus jawaban lama di spreadsheet.</p>
+        <div id="ed_FormFields"></div></div></div>
+      <div data-panel="Milestones" class="hidden"><div class="card" style="max-width:520px"><h2>Milestone target kumulatif</h2>
+        <p class="muted">Jumlah unit kumulatif yang diharapkan pada hari ke-N. Dipakai untuk status "Sesuai target".</p>
+        <div id="ed_Milestones"></div></div></div>
+      <div data-panel="Reports" class="hidden"><div class="card"><h2>Laporan</h2>
+        <div class="row" style="margin-bottom:12px">
+          <input id="repFilter" placeholder="Cari nama / tanggal…" style="max-width:280px">
+          <span class="spacer"></span>
+          <button class="btn" id="repAdd">+ Tambah laporan</button>
+        </div>
+        <div class="table-wrap" id="reportTable"></div></div></div>
+      <div data-panel="preview" class="hidden"><div id="dashboard"><div class="loading">Memuat…</div></div></div>
+    </section>
+  </main>
+  <div id="toast"></div>
+
+  <?!= include('Shared'); ?>
+  <script>
+    var INITIAL_BATCH = '<?= initialBatch ?>';
+    var token = null, all = null, dashState = { selected: '' }, currentTab = 'batches';
+    try { token = sessionStorage.getItem('btcDevToken'); } catch (e) {}
+
+    function devCall(fn) {
+      var args = Array.prototype.slice.call(arguments, 1);
+      return call.apply(null, [fn, token].concat(args)).catch(function (e) {
+        if (String(e.message).indexOf('SESSION_EXPIRED') >= 0) { logout(); throw new Error('Sesi habis, silakan masuk lagi.'); }
+        throw e;
+      });
+    }
+
+    function showApp(on) {
+      document.getElementById('loginView').classList.toggle('hidden', on);
+      document.getElementById('appView').classList.toggle('hidden', !on);
+      document.getElementById('topActions').classList.toggle('hidden', !on);
+    }
+
+    function logout() {
+      if (token) call('apiDevLogout', token).catch(function () {});
+      token = null;
+      try { sessionStorage.removeItem('btcDevToken'); } catch (e) {}
+      showApp(false);
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var msg = document.getElementById('loginMsg');
+      msg.innerHTML = '';
+      call('apiDevLogin', document.getElementById('pw').value).then(function (t) {
+        token = t;
+        try { sessionStorage.setItem('btcDevToken', t); } catch (e) {}
+        document.getElementById('pw').value = '';
+        load(INITIAL_BATCH);
+      }).catch(function (err) { msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>'; });
+    });
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+
+    setTabs(document.getElementById('tabs'), function (tab) {
+      currentTab = tab;
+      if (tab === 'preview') loadPreview();
+    });
+
+    document.getElementById('batchSelect').addEventListener('change', function (e) { dashState.selected = ''; load(e.target.value); });
+
+    function load(batchId) {
+      return devCall('apiDevGetAll', batchId || '').then(apply).catch(function (e) { toast(e.message); });
+    }
+
+    function apply(data) {
+      all = data;
+      showApp(true);
+      var b = data.batch;
+      document.getElementById('subtitle').textContent = 'Batch aktif di panel: ' + b.name + (b.status === 'archived' ? ' (arsip)' : '');
+      document.getElementById('batchSelect').innerHTML = data.batches.map(function (x) {
+        return '<option value="' + esc(x.id) + '"' + (x.id === b.id ? ' selected' : '') + '>' + esc(x.name) + '</option>';
+      }).join('');
+      document.getElementById('lnkSheet').href = data.urls.spreadsheet;
+      document.getElementById('lnkFolder').href = data.urls.folder;
+      document.getElementById('lnkGuest').href = data.urls.app + '?batch=' + encodeURIComponent(b.id);
+      renderBatches();
+      renderEditors();
+      renderReports();
+      if (currentTab === 'preview') loadPreview();
+    }
+
+    // ------------------------------------------------------------ batches
+    function renderBatches() {
+      var html = '<table><thead><tr><th>Nama</th><th>ID</th><th>Status</th><th>Default</th><th>Dibuat</th><th></th></tr></thead><tbody>';
+      all.batches.forEach(function (b) {
+        html += '<tr' + (b.id === all.batch.id ? ' class="selected"' : '') + '><td>' + esc(b.name) + '</td><td class="muted">' + esc(b.id) + '</td>' +
+          '<td>' + (b.status === 'archived' ? '<span class="pill none">Arsip</span>' : '<span class="pill ok">Aktif</span>') + '</td>' +
+          '<td>' + (b.isDefault ? '★' : '') + '</td><td class="muted">' + esc(b.createdAt) + '</td><td class="actions row">' +
+          '<button class="btn sm" data-act="open" data-id="' + esc(b.id) + '">Kelola</button>' +
+          (b.isDefault ? '' : '<button class="btn sm" data-act="default" data-id="' + esc(b.id) + '">Jadikan default</button>') +
+          '<button class="btn sm" data-act="rename" data-id="' + esc(b.id) + '">Ganti nama</button>' +
+          (b.status === 'archived' ? '<button class="btn sm" data-act="activate" data-id="' + esc(b.id) + '">Aktifkan</button>'
+            : '<button class="btn sm" data-act="archive" data-id="' + esc(b.id) + '">Arsipkan</button>') +
+          '</td></tr>';
+      });
+      html += '</tbody></table><p class="muted">Batch default tampil pertama di halaman Guest. Batch arsip masih bisa dilihat dashboardnya, tetapi form-nya ditutup.</p>';
+      var el = document.getElementById('batchTable');
+      el.innerHTML = html;
+      el.querySelectorAll('[data-act]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.getAttribute('data-id'), act = btn.getAttribute('data-act');
+          if (act === 'open') return load(id);
+          var patch = {};
+          if (act === 'default') patch.isDefault = true;
+          if (act === 'archive') { if (!confirm('Arsipkan batch ini? Form akan ditutup, data tetap aman.')) return; patch.status = 'archived'; }
+          if (act === 'activate') patch.status = 'active';
+          if (act === 'rename') { var n = prompt('Nama baru batch:'); if (!n) return; patch.name = n; }
+          devCall('apiDevUpdateBatch', id, patch).then(function () { return load(all.batch.id); })
+            .then(function () { toast('Batch diperbarui.'); }).catch(function (e) { toast(e.message); });
+        });
+      });
+      document.getElementById('nbSource').innerHTML = '<option value="">(Default bawaan aplikasi)</option>' + all.batches.map(function (b) {
+        return '<option value="' + esc(b.id) + '"' + (b.id === all.batch.id ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+      }).join('');
+      if (!document.getElementById('nbStart').value) document.getElementById('nbStart').value = all.today;
+    }
+
+    document.getElementById('nbCreate').addEventListener('click', function () {
+      var btn = this, name = document.getElementById('nbName').value.trim();
+      if (!name) return toast('Isi nama batch.');
+      btn.disabled = true; btn.textContent = 'Membuat…';
+      devCall('apiDevCreateBatch', {
+        name: name, startDate: document.getElementById('nbStart').value,
+        sourceBatchId: document.getElementById('nbSource').value, copyStudents: document.getElementById('nbStudents').checked
+      }).then(function (d) { apply(d); document.getElementById('nbName').value = ''; toast('Batch "' + name + '" dibuat.'); })
+        .catch(function (e) { toast(e.message); })
+        .then(function () { btn.disabled = false; btn.textContent = 'Buat batch'; });
+    });
+
+    document.getElementById('pwBtn').addEventListener('click', function () {
+      var pw = document.getElementById('newPw').value;
+      devCall('apiDevChangePassword', pw).then(function () { document.getElementById('newPw').value = ''; toast('Password diganti.'); })
+        .catch(function (e) { toast(e.message); });
+    });
+
+    // ------------------------------------------------------------ table editors
+    var FIELD_TYPES = [['text', 'Jawaban singkat'], ['textarea', 'Paragraf'], ['number', 'Angka'], ['date', 'Tanggal'], ['select', 'Dropdown'],
+      ['radio', 'Pilihan ganda'], ['checkbox', 'Kotak centang'], ['student', 'Nama santri'], ['category', 'Kategori perangkat'], ['file', 'Upload file']];
+    var SYSTEM_KEYS = ['date', 'student', 'category', 'units'];
+
+    function columnsFor(name) {
+      if (name === 'Settings') return [{ key: 'key', label: 'Key' }, { key: 'value', label: 'Nilai', type: 'textarea' }, { key: 'description', label: 'Keterangan' }];
+      if (name === 'Categories') return [{ key: 'label', label: 'Nama kategori' }, { key: 'key', label: 'Key (otomatis)' },
+        { key: 'defaultTarget', label: 'Target default', type: 'number' }, { key: 'active', label: 'Aktif', type: 'bool' }];
+      if (name === 'Students') {
+        var cols = [{ key: 'id', label: 'ID (otomatis)', readonly: true }, { key: 'name', label: 'Nama lengkap' }, { key: 'nickname', label: 'Panggilan' },
+          { key: 'active', label: 'Aktif', type: 'bool' }];
+        all.tables.Categories.rows.forEach(function (c) {
+          if (String(c.active) !== 'false') cols.push({ key: 'target:' + c.key, label: 'Target ' + c.label, type: 'number', placeholder: String(c.defaultTarget) });
+        });
+        cols.push({ key: 'notes', label: 'Catatan' });
+        return cols;
+      }
+      if (name === 'FormFields') return [{ key: 'label', label: 'Pertanyaan' }, { key: 'key', label: 'Key (otomatis)' },
+        { key: 'type', label: 'Tipe', type: 'select', options: FIELD_TYPES }, { key: 'options', label: 'Pilihan', type: 'textarea' },
+        { key: 'required', label: 'Wajib', type: 'bool' }, { key: 'section', label: 'Section' }, { key: 'help', label: 'Petunjuk' },
+        { key: 'active', label: 'Aktif', type: 'bool' }];
+      if (name === 'Milestones') return [{ key: 'day', label: 'Hari ke', type: 'number' }, { key: 'units', label: 'Jml unit kumulatif', type: 'number' }];
+    }
+
+    function newRowFor(name) {
+      if (name === 'Students' || name === 'Categories') return { active: true };
+      if (name === 'FormFields') return { type: 'text', active: true, required: false };
+      return {};
+    }
+
+    function renderEditors() {
+      ['Settings', 'Students', 'Categories', 'FormFields', 'Milestones'].forEach(function (name) {
+        tableEditor(document.getElementById('ed_' + name), name, columnsFor(name), all.tables[name].rows);
+      });
+    }
+
+    function isTrue(v) { return v === true || String(v).toLowerCase() === 'true'; }
+
+    function cellInput(col, row) {
+      var v = row[col.key] == null ? '' : row[col.key];
+      var locked = col.readonly || (col.lockSystem && SYSTEM_KEYS.indexOf(row.key) >= 0);
+      if (col.type === 'bool') return '<input type="checkbox" data-k="' + esc(col.key) + '"' + (isTrue(v) ? ' checked' : '') + '>';
+      if (col.type === 'select') {
+        return '<select data-k="' + esc(col.key) + '">' + col.options.map(function (o) {
+          return '<option value="' + esc(o[0]) + '"' + (o[0] === v ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+        }).join('') + '</select>';
+      }
+      if (col.type === 'textarea') return '<textarea data-k="' + esc(col.key) + '" rows="1">' + esc(v) + '</textarea>';
+      return '<input data-k="' + esc(col.key) + '"' + (col.type === 'number' ? ' type="number"' : '') +
+        (col.placeholder ? ' placeholder="' + esc(col.placeholder) + '"' : '') + ' value="' + esc(v) + '"' + (locked ? ' readonly' : '') + '>';
+    }
+
+    function tableEditor(el, name, cols, rows) {
+      rows = rows.map(function (r) { return Object.assign({}, r); });
+      if (name === 'FormFields') {
+        rows.sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
+        cols.forEach(function (c) { if (c.key === 'key' || c.key === 'type') c.lockSystem = true; });
+      }
+      function draw() {
+        var html = '<div class="table-wrap"><table class="editor"><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') +
+          '<th></th></tr></thead><tbody>';
+        rows.forEach(function (r, i) {
+          var sys = name === 'FormFields' && SYSTEM_KEYS.indexOf(r.key) >= 0;
+          html += '<tr data-i="' + i + '">' + cols.map(function (c) {
+            if (sys && c.key === 'type') return '<td><span class="muted">' + esc(r.type) + ' (wajib)</span></td>';
+            if (sys && (c.key === 'required' || c.key === 'active')) return '<td><span class="muted">✓</span></td>';
+            return '<td>' + cellInput(c, r) + '</td>';
+          }).join('') +
+            '<td class="actions"><button class="btn sm" data-m="up" title="Naik">↑</button><button class="btn sm" data-m="down" title="Turun">↓</button>' +
+            (sys ? '' : '<button class="btn sm danger" data-m="del" title="Hapus">✕</button>') + '</td></tr>';
+        });
+        html += '</tbody></table></div><div class="row" style="margin-top:12px"><button class="btn" data-m="add">+ Tambah baris</button>' +
+          '<span class="spacer"></span><button class="btn primary" data-m="save">Simpan</button></div>';
+        el.innerHTML = html;
+      }
+      function collect() {
+        el.querySelectorAll('tbody tr').forEach(function (tr) {
+          var r = rows[Number(tr.getAttribute('data-i'))];
+          tr.querySelectorAll('[data-k]').forEach(function (inp) {
+            r[inp.getAttribute('data-k')] = inp.type === 'checkbox' ? inp.checked : inp.value;
+          });
+        });
+      }
+      el.onclick = function (e) {
+        var b = e.target.closest('[data-m]');
+        if (!b) return;
+        collect();
+        var m = b.getAttribute('data-m'), tr = b.closest('tr'), i = tr ? Number(tr.getAttribute('data-i')) : -1;
+        if (m === 'add') rows.push(newRowFor(name));
+        if (m === 'del') { if (!confirm('Hapus baris ini?')) return; rows.splice(i, 1); }
+        if (m === 'up' && i > 0) rows.splice(i - 1, 0, rows.splice(i, 1)[0]);
+        if (m === 'down' && i < rows.length - 1) rows.splice(i + 1, 0, rows.splice(i, 1)[0]);
+        if (m === 'save') {
+          b.disabled = true; b.textContent = 'Menyimpan…';
+          devCall('apiDevSaveTable', all.batch.id, name, rows).then(function (d) { apply(d); toast('Tersimpan.'); })
+            .catch(function (err) { toast(err.message); b.disabled = false; b.textContent = 'Simpan'; });
+          return;
+        }
+        draw();
+      };
+      draw();
+    }
+
+    // ------------------------------------------------------------ reports
+    var editingReport = null;
+    function reportColumns() {
+      var fields = all.tables.FormFields.rows.slice().sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
+      var keys = fields.map(function (f) { return f.key; });
+      var labels = {};
+      fields.forEach(function (f) { labels[f.key] = f.label; });
+      // Columns that exist in the sheet but are no longer in the form (old answers) still show at the end.
+      all.tables.Reports.headers.forEach(function (h) {
+        if (['id', 'submittedAt', 'updatedAt', 'studentName'].indexOf(h) < 0 && keys.indexOf(h) < 0) keys.push(h);
+      });
+      return { keys: keys, labels: labels, fields: fields };
+    }
+
+    function reportCellEditor(key, value, fields) {
+      var f = fields.filter(function (x) { return x.key === key; })[0];
+      var type = f ? f.type : 'text';
+      if (type === 'student') {
+        return '<select data-k="' + esc(key) + '"><option value=""></option>' + all.tables.Students.rows.map(function (s) {
+          return '<option value="' + esc(s.id) + '"' + (String(s.id) === String(value) ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+        }).join('') + '</select>';
+      }
+      if (type === 'category') {
+        return '<select data-k="' + esc(key) + '"><option value=""></option>' + all.tables.Categories.rows.map(function (c) {
+          return '<option value="' + esc(c.key) + '"' + (String(c.key) === String(value) ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+        }).join('') + '</select>';
+      }
+      var t = type === 'number' ? 'number' : type === 'date' ? 'date' : 'text';
+      return '<input type="' + t + '" data-k="' + esc(key) + '" value="' + esc(value) + '">';
+    }
+
+    function displayValue(key, value, fields) {
+      var f = fields.filter(function (x) { return x.key === key; })[0];
+      if (f && f.type === 'student') { var s = all.tables.Students.rows.filter(function (x) { return String(x.id) === String(value); })[0]; return esc(s ? s.name : value); }
+      if (f && f.type === 'category') { var c = all.tables.Categories.rows.filter(function (x) { return String(x.key) === String(value); })[0]; return esc(c ? c.label : value); }
+      if (/^https:\/\//.test(String(value))) return '<a href="' + esc(value) + '" target="_blank">Buka</a>';
+      return esc(value);
+    }
+
+    function renderReports() {
+      var cols = reportColumns();
+      var q = document.getElementById('repFilter').value.trim().toLowerCase();
+      var rows = all.tables.Reports.rows.slice().reverse();
+      if (editingReport === 'new') rows.unshift({ id: '' });
+      if (q) rows = rows.filter(function (r) { return !r.id || JSON.stringify(r).toLowerCase().indexOf(q) >= 0; });
+      var html = '<table class="editor"><thead><tr><th>Dikirim</th>' + cols.keys.map(function (k) { return '<th>' + esc(cols.labels[k] || k) + '</th>'; }).join('') +
+        '<th></th></tr></thead><tbody>';
+      rows.slice(0, 300).forEach(function (r) {
+        var editing = (editingReport === 'new' && !r.id) || (r.id && editingReport === r.id);
+        html += '<tr data-id="' + esc(r.id) + '"><td class="muted">' + esc(r.submittedAt || 'baru') + '</td>' + cols.keys.map(function (k) {
+          return '<td>' + (editing ? reportCellEditor(k, r[k] == null ? '' : r[k], cols.fields) : displayValue(k, r[k] == null ? '' : r[k], cols.fields)) + '</td>';
+        }).join('') + '<td class="actions">' + (editing
+          ? '<button class="btn sm primary" data-r="save">Simpan</button><button class="btn sm" data-r="cancel">Batal</button>'
+          : '<button class="btn sm" data-r="edit">Edit</button><button class="btn sm danger" data-r="del">Hapus</button>') + '</td></tr>';
+      });
+      if (!rows.length) html += '<tr><td colspan="' + (cols.keys.length + 2) + '" class="muted">Belum ada laporan.</td></tr>';
+      html += '</tbody></table>';
+      if (rows.length > 300) html += '<p class="muted">Menampilkan 300 laporan terbaru. Gunakan pencarian atau buka spreadsheet untuk data lengkap.</p>';
+      document.getElementById('reportTable').innerHTML = html;
+    }
+
+    document.getElementById('repFilter').addEventListener('input', renderReports);
+    document.getElementById('repAdd').addEventListener('click', function () { editingReport = 'new'; renderReports(); });
+    document.getElementById('reportTable').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-r]');
+      if (!b) return;
+      var tr = b.closest('tr'), id = tr.getAttribute('data-id'), act = b.getAttribute('data-r');
+      if (act === 'edit') { editingReport = id; return renderReports(); }
+      if (act === 'cancel') { editingReport = null; return renderReports(); }
+      if (act === 'del') {
+        if (!confirm('Hapus laporan ini? Tidak bisa dibatalkan.')) return;
+        return devCall('apiDevDeleteReport', all.batch.id, id).then(function (d) { apply(d); toast('Laporan dihapus.'); }).catch(function (err) { toast(err.message); });
+      }
+      if (act === 'save') {
+        var row = { id: id };
+        tr.querySelectorAll('[data-k]').forEach(function (inp) { row[inp.getAttribute('data-k')] = inp.value; });
+        b.disabled = true;
+        devCall('apiDevSaveReport', all.batch.id, row).then(function (d) { editingReport = null; apply(d); toast('Laporan tersimpan.'); })
+          .catch(function (err) { toast(err.message); b.disabled = false; });
+      }
+    });
+
+    // ------------------------------------------------------------ dashboard preview
+    function loadPreview() {
+      var el = document.getElementById('dashboard');
+      el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
+      call('apiGetDashboard', all.batch.id).then(function (d) {
+        var extra = d.unmatchedReports ? '<div class="notice err">' + d.unmatchedReports +
+          ' laporan tidak terhitung karena nama santri atau kategorinya tidak dikenali. Periksa tab Laporan.</div>' : '';
+        renderDashboard(el, d, dashState);
+        if (extra) el.insertAdjacentHTML('afterbegin', extra);
+      }).catch(function (e) { el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
+    }
+
+    if (token) load(INITIAL_BATCH).then(function () { if (!all) showApp(false); });
+  </script>
+</body>
+</html>
