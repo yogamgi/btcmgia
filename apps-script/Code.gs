@@ -198,8 +198,29 @@ function publicBatchList_() {
   });
 }
 
-function loadBatchData_(ss) {
+/**
+ * Brings an older batch spreadsheet up to SCHEMA_VERSION (see migrateFormFields_ in Logic.gs).
+ * Idempotent, so a rare concurrent double run is harmless. Returns the current Settings rows.
+ */
+function migrateBatch_(ss) {
   var settingsRows = readTable_(ss, 'Settings').rows;
+  var version = toNum_(settingsToObject_(settingsRows).schemaVersion, 1);
+  if (version >= SCHEMA_VERSION) return settingsRows;
+  var fields = sanitizeTable_('FormFields', migrateFormFields_(readTable_(ss, 'FormFields').rows, version), {});
+  writeTable_(ss, 'FormFields', fields.headers, fields.rows);
+  ensureHeaders_(getOrCreateSheet_(ss, 'Reports'), reportHeaders_(fields.rows));
+  var found = false;
+  settingsRows.forEach(function (r) { if (r.key === 'schemaVersion') { r.value = String(SCHEMA_VERSION); found = true; } });
+  if (!found) settingsRows.push({ key: 'schemaVersion', value: String(SCHEMA_VERSION), description: 'Versi struktur data (jangan diubah)' });
+  if (!settingsRows.some(function (r) { return r.key === 'bannerFileId'; })) {
+    settingsRows.push({ key: 'bannerFileId', value: '', description: 'File banner di Drive (diatur dari tab Pengaturan > Banner)' });
+  }
+  writeTable_(ss, 'Settings', TABLE_HEADERS.Settings, settingsRows);
+  return settingsRows;
+}
+
+function loadBatchData_(ss) {
+  var settingsRows = migrateBatch_(ss);
   return {
     settingsRows: settingsRows,
     settings: settingsToObject_(settingsRows),
@@ -336,6 +357,19 @@ function saveUpload_(meta, file, studentName) {
   return folder.createFile(blob).getUrl();
 }
 
+/** Banner image for the guest header as a data URL, or '' when none is set. */
+function apiGetBanner(batchId) {
+  var meta = resolveBatch_(batchId);
+  var id = settingsToObject_(readTable_(SpreadsheetApp.openById(meta.spreadsheetId), 'Settings').rows).bannerFileId;
+  if (!id) return '';
+  try {
+    var blob = DriveApp.getFileById(String(id)).getBlob();
+    return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+  } catch (e) {
+    return ''; // file deleted or no longer accessible: just show no banner
+  }
+}
+
 function apiGetDashboard(batchId) {
   var meta = resolveBatch_(batchId);
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
@@ -394,6 +428,7 @@ function apiDevGetAll(token, batchId) {
   requireDev_(token);
   var meta = resolveBatch_(batchId);
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+  migrateBatch_(ss);
   var tables = {};
   EDITABLE_TABLES.concat(['Reports']).forEach(function (n) { tables[n] = readTable_(ss, n); });
   return {
@@ -490,6 +525,29 @@ function apiDevDeleteReport(token, batchId, ids) {
       if (wanted[String(values[i][idCol])]) { sh.deleteRow(i + 1); found++; }
     }
     if (!found) throw new Error('Laporan tidak ditemukan.');
+  });
+  return apiDevGetAll(token, meta.id);
+}
+
+/** file: { name, mimeType, data(base64) } to set the banner, or null to remove it. */
+function apiDevSetBanner(token, batchId, file) {
+  requireDev_(token);
+  var meta = resolveBatch_(batchId);
+  var fileId = '';
+  if (file && file.data) {
+    if (!/^image\//.test(String(file.mimeType))) throw new Error('Banner harus berupa gambar.');
+    var bytes = Utilities.base64Decode(String(file.data));
+    if (bytes.length > 5 * 1024 * 1024) throw new Error('Banner terlalu besar (maks 5 MB).');
+    var folder = getOrCreateSubfolder_(DriveApp.getFolderById(meta.folderId), 'Assets');
+    fileId = folder.createFile(Utilities.newBlob(bytes, String(file.mimeType), 'banner ' + now_() + ' ' + String(file.name || ''))).getId();
+  }
+  withLock_(function () {
+    var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+    var rows = readTable_(ss, 'Settings').rows;
+    var found = false;
+    rows.forEach(function (r) { if (r.key === 'bannerFileId') { r.value = fileId; found = true; } });
+    if (!found) rows.push({ key: 'bannerFileId', value: fileId, description: 'File banner di Drive (diatur dari tab Pengaturan > Banner)' });
+    writeTable_(ss, 'Settings', TABLE_HEADERS.Settings, rows);
   });
   return apiDevGetAll(token, meta.id);
 }

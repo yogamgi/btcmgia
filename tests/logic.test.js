@@ -70,18 +70,18 @@ test('inactive student with no reports is hidden', () => {
 test('report validation', () => {
   const t = batch();
   let r = L.validateReport_(t.FormFields, {}, t.Students, t.Categories);
-  assert.strictEqual(r.errors.length, 4);
+  assert.strictEqual(r.errors.length, 3);
   r = L.validateReport_(t.FormFields, {
-    date: '2026-10-02', student: 'S001', category: 'android', units: '3', work_type: ['Ganti LCD', 'hack'],
-    photo: { name: 'x.jpg', data: 'AAAA' }
+    date: '2026-10-02', student: 'S001', category: 'android', work_type: ['Ganti LCD', 'hack'],
+    photo_before: { name: 'x.jpg', data: 'AAAA' }
   }, t.Students, t.Categories);
   assert.deepStrictEqual(r.errors, []);
-  assert.strictEqual(r.values.units, 3);
+  assert.strictEqual(r.values.units, undefined);
   assert.strictEqual(r.values.work_type, 'Ganti LCD');
   assert.strictEqual(r.studentName, 'Abdul Latif');
-  assert.deepStrictEqual(r.files, ['photo']);
-  r = L.validateReport_(t.FormFields, { date: 'x', student: 'S003', category: 'tv', units: '-1' }, t.Students, t.Categories);
-  assert.strictEqual(r.errors.length, 4);
+  assert.deepStrictEqual(r.files, ['photo_before']);
+  r = L.validateReport_(t.FormFields, { date: 'x', student: 'S003', category: 'tv' }, t.Students, t.Categories);
+  assert.strictEqual(r.errors.length, 3);
 });
 
 test('form field sanitizing keeps system fields', () => {
@@ -92,12 +92,10 @@ test('form field sanitizing keeps system fields', () => {
   assert.deepStrictEqual(keys.slice(0, 3), ['merk_hp', 'merk_hp_2', 'units']);
   assert.strictEqual(out.rows[1].type, 'text');
   const units = out.rows.find(r => r.key === 'units');
-  assert.strictEqual(units.type, 'number');
-  assert.strictEqual(units.required, false);
-  assert.strictEqual(units.active, true);
-  const off = L.sanitizeTable_('FormFields', [{ key: 'date', label: 'Tgl', active: false }, { key: 'units', label: 'U', active: false }], {});
+  assert.strictEqual(units.type, 'text'); // no longer a core field
+  const off = L.sanitizeTable_('FormFields', [{ key: 'date', label: 'Tgl', active: false }, { key: 'category', label: 'C', active: false }], {});
   assert.strictEqual(off.rows.find(r => r.key === 'date').active, false);
-  assert.strictEqual(off.rows.find(r => r.key === 'units').active, true);
+  assert.strictEqual(off.rows.find(r => r.key === 'category').active, true);
   assert.strictEqual(off.rows.find(r => r.key === 'student').required, true);
   for (const k of Object.keys(L.SYSTEM_FIELDS)) assert.ok(keys.includes(k), k);
 });
@@ -113,4 +111,30 @@ test('student sanitizing assigns ids and target columns', () => {
 
 test('categories must not be empty', () => {
   assert.throws(() => L.sanitizeTable_('Categories', [], {}));
+});
+
+test('each report without a units value counts as one unit', () => {
+  const t = batch();
+  const d = L.computeDashboard_({ settings: L.settingsToObject_(t.Settings), categories: t.Categories, students: t.Students,
+    milestones: t.Milestones, today: '2026-10-05', reports: [
+      { id: 'a', date: '2026-10-01', student: 'S001', category: 'android' },
+      { id: 'b', date: '2026-10-02', student: 'S001', category: 'android', units: '' },
+      { id: 'c', date: '2026-10-02', student: 'S001', category: 'laptop', units: '3' }] });
+  const abdul = d.students.find(s => s.id === 'S001');
+  assert.strictEqual(abdul.done.android, 2);
+  assert.strictEqual(abdul.done.laptop, 3);
+});
+
+test('v1 forms migrate: units and single photo removed, three photo uploads added', () => {
+  const v1 = [
+    { key: 'date', label: 'Tanggal', type: 'date' }, { key: 'units', label: 'Jumlah Unit Selesai', type: 'number' },
+    { key: 'notes', label: 'Catatan', type: 'textarea' }, { key: 'photo', label: 'Foto Bukti', type: 'file' }];
+  const out = L.migrateFormFields_(v1, 1);
+  assert.deepStrictEqual(out.map(f => f.key), ['date', 'notes', 'photo_before', 'photo_after', 'photo_supervisor']);
+  assert.deepStrictEqual(out.slice(2).map(f => f.label), ['Sebelum bongkar', 'Setelah bongkar', 'Foto bersama pengawas']);
+  assert.ok(out.slice(2).every(f => f.type === 'file' && f.section === 'Foto Bukti'));
+  assert.strictEqual(L.migrateFormFields_(out, 2).length, out.length);
+  const fresh = L.defaultBatchTables_('B', '2026-01-01');
+  assert.ok(!fresh.FormFields.some(f => f.key === 'units' || f.key === 'photo'));
+  assert.strictEqual(L.settingsToObject_(fresh.Settings).schemaVersion, String(L.SCHEMA_VERSION));
 });

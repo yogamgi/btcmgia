@@ -8,12 +8,21 @@
 var FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select', 'radio', 'checkbox', 'student', 'category', 'file'];
 
 // Fields the dashboard depends on. Dev can relabel / move them, never delete them.
+// Units are not asked: every report counts as one unit (a "units" number field, if a Dev adds one, overrides that).
 var SYSTEM_FIELDS = {
   date: { type: 'date', label: 'Tanggal Pengerjaan' },
   student: { type: 'student', label: 'Nama Santri' },
-  category: { type: 'category', label: 'Jenis Perangkat' },
-  units: { type: 'number', label: 'Jumlah Unit Selesai' }
+  category: { type: 'category', label: 'Jenis Perangkat' }
 };
+
+// Bump when existing batches need their stored form changed; see migrateFormFields_.
+var SCHEMA_VERSION = 2;
+
+var PHOTO_FIELDS = [
+  { key: 'photo_before', label: 'Sebelum bongkar' },
+  { key: 'photo_after', label: 'Setelah bongkar' },
+  { key: 'photo_supervisor', label: 'Foto bersama pengawas' }
+];
 
 var TABLE_HEADERS = {
   Settings: ['key', 'value', 'description'],
@@ -173,7 +182,7 @@ function computeDashboard_(input) {
   reports.forEach(function (rep) {
     var s = findStudent_(allStudents, rep.student);
     var c = findCategory_(cats, rep.category);
-    var units = toNum_(rep.units);
+    var units = toNum_(rep.units, 1);
     if (!s || !c) { unmatched++; return; }
     var row = rowsById[String(s.id)];
     row.done[c.key] += units;
@@ -379,7 +388,7 @@ function sanitizeTable_(name, rows, ctx) {
         options: splitOptions_(r.options).join('\n'),
         required: r.required === undefined ? !!sys : toBool_(r.required),
         order: 0, section: String(r.section || '').trim(), help: r.help || '',
-        // The dashboard cannot count a report without student, category and units, so those stay on.
+        // The dashboard cannot count a report without student and category, so those stay on.
         active: (sys && key !== 'date') || r.active === undefined ? true : toBool_(r.active) });
     });
     Object.keys(SYSTEM_FIELDS).forEach(function (k) {
@@ -399,6 +408,29 @@ function sanitizeTable_(name, rows, ctx) {
   return { headers: headers, rows: out };
 }
 
+function photoFieldRows_() {
+  return PHOTO_FIELDS.map(function (p, i) {
+    return { key: p.key, label: p.label, type: 'file', options: '', required: false, order: 100 + i, section: 'Foto Bukti',
+      help: 'Foto atau video', active: true };
+  });
+}
+
+/**
+ * Upgrades a batch's stored form questions from schema `fromVersion` to SCHEMA_VERSION.
+ * v2: the "units" question is dropped (each report = 1 unit) and the single "photo" upload is
+ * replaced by three photo uploads in a "Foto Bukti" section. Answers already in Reports stay.
+ */
+function migrateFormFields_(fields, fromVersion) {
+  var out = (fields || []).slice();
+  if (fromVersion < 2) {
+    out = out.filter(function (f) { return f.key !== 'units' && f.key !== 'photo'; });
+    var have = {};
+    out.forEach(function (f) { have[f.key] = true; });
+    photoFieldRows_().forEach(function (f) { if (!have[f.key]) out.push(f); });
+  }
+  return out;
+}
+
 /** Starting content for a brand-new batch (used for Batch 4 and when no source batch is copied). */
 function defaultBatchTables_(batchName, startDate) {
   return {
@@ -413,7 +445,9 @@ function defaultBatchTables_(batchName, startDate) {
       { key: 'successMessage', value: 'Terima kasih, laporan tersimpan.', description: 'Pesan setelah submit' },
       { key: 'dashboardTitle', value: 'Dashboard Santri', description: 'Judul dashboard' },
       { key: 'dashboardNotice', value: '', description: 'Pengumuman di atas dashboard (opsional)' },
-      { key: 'showRecentReports', value: 'true', description: 'Tampilkan riwayat laporan di dashboard' }
+      { key: 'showRecentReports', value: 'true', description: 'Tampilkan riwayat laporan di dashboard' },
+      { key: 'bannerFileId', value: '', description: 'File banner di Drive (diatur dari tab Pengaturan > Banner)' },
+      { key: 'schemaVersion', value: String(SCHEMA_VERSION), description: 'Versi struktur data (jangan diubah)' }
     ],
     Categories: [
       { key: 'android', label: 'Android', defaultTarget: 60, order: 1, active: true },
@@ -425,12 +459,10 @@ function defaultBatchTables_(batchName, startDate) {
       { key: 'date', label: 'Tanggal Pengerjaan', type: 'date', options: '', required: true, order: 1, section: 'Data Laporan', help: '', active: true },
       { key: 'student', label: 'Nama Santri', type: 'student', options: '', required: true, order: 2, section: 'Data Laporan', help: '', active: true },
       { key: 'category', label: 'Jenis Perangkat', type: 'category', options: '', required: true, order: 3, section: 'Data Laporan', help: '', active: true },
-      { key: 'units', label: 'Jumlah Unit Selesai', type: 'number', options: '', required: true, order: 4, section: 'Data Laporan', help: 'Jumlah unit yang selesai dikerjakan pada tanggal ini', active: true },
       { key: 'device_model', label: 'Merk / Tipe Perangkat', type: 'text', options: '', required: false, order: 5, section: 'Detail Pekerjaan', help: 'Contoh: Samsung A12, iPhone 11, Lenovo T480', active: true },
       { key: 'work_type', label: 'Jenis Pekerjaan', type: 'checkbox', options: 'Diagnosa\nGanti LCD\nGanti Baterai\nGanti Konektor Cas\nSoftware / Flashing\nLainnya', required: false, order: 6, section: 'Detail Pekerjaan', help: '', active: true },
       { key: 'notes', label: 'Catatan / Kendala', type: 'textarea', options: '', required: false, order: 7, section: 'Detail Pekerjaan', help: '', active: true },
-      { key: 'photo', label: 'Foto Bukti', type: 'file', options: '', required: false, order: 8, section: 'Detail Pekerjaan', help: 'Opsional, maks 10 MB', active: true }
-    ],
+    ].concat(photoFieldRows_()),
     Milestones: [
       { day: 5, units: 13 }, { day: 10, units: 25 }, { day: 15, units: 38 }, { day: 20, units: 50 },
       { day: 25, units: 63 }, { day: 30, units: 75 }, { day: 35, units: 88 }, { day: 40, units: 100 }
@@ -443,6 +475,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     toBool_: toBool_, toNum_: toNum_, slugKey_: slugKey_, dayNumber_: dayNumber_, interpolateMilestone_: interpolateMilestone_,
     computeDashboard_: computeDashboard_, validateReport_: validateReport_, sanitizeTable_: sanitizeTable_,
-    defaultBatchTables_: defaultBatchTables_, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
+    defaultBatchTables_: defaultBatchTables_, migrateFormFields_: migrateFormFields_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
   };
 }

@@ -16,6 +16,38 @@
     });
   }
 
+  /**
+   * Reads a file as { name, mimeType, data(base64) }. Photos are shrunk to `maxDim` px on the long side
+   * and re-encoded as JPEG so uploads stay small on phone connections; other files are sent as-is (max 10 MB).
+   */
+  function readFile(file, maxDim) {
+    var isPhoto = /^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type);
+    return new Promise(function (resolve, reject) {
+      if (!isPhoto && file.size > 10 * 1024 * 1024) return reject(new Error('File "' + file.name + '" lebih dari 10 MB.'));
+      var r = new FileReader();
+      r.onerror = function () { reject(new Error('Gagal membaca file "' + file.name + '".')); };
+      r.onload = function () {
+        var raw = { name: file.name, mimeType: file.type || 'application/octet-stream', data: String(r.result).split(',')[1] };
+        if (!isPhoto) return resolve(raw);
+        var img = new Image();
+        img.onerror = function () {
+          if (file.size > 10 * 1024 * 1024) reject(new Error('File "' + file.name + '" lebih dari 10 MB.'));
+          else resolve(raw); // format the browser cannot draw (e.g. HEIC on some devices): send original
+        };
+        img.onload = function () {
+          var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          var c = document.createElement('canvas');
+          c.width = Math.round(img.width * scale);
+          c.height = Math.round(img.height * scale);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          resolve({ name: file.name.replace(/\.[^.]+$/, '') + '.jpg', mimeType: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] });
+        };
+        img.src = r.result;
+      };
+      r.readAsDataURL(file);
+    });
+  }
+
   function fmtPct(v) { return v == null ? '–' : (Math.round(v) + '%'); }
   function fmtNum(v) { return v == null ? '–' : (Math.round(v * 10) / 10).toLocaleString('id-ID'); }
 

@@ -7,6 +7,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
+  <div id="banner" class="banner hidden"><img id="bannerImg" alt="Banner"></div>
   <header class="top">
     <div>
       <h1>Stage 1 - Akademi BTC</h1>
@@ -67,9 +68,18 @@
         document.getElementById('formDesc').textContent = p.settings.formDescription;
         document.getElementById('dashTitle').textContent = p.settings.dashboardTitle;
         renderForm();
+        loadBanner(p.batch.id);
         dash = null;
         if (currentTab === 'dashboard') loadDashboard();
       }).catch(showFatal);
+    }
+
+    function loadBanner(batchId) {
+      call('apiGetBanner', batchId).then(function (url) {
+        if (!pub || pub.batch.id !== batchId) return;
+        document.getElementById('bannerImg').src = url || '';
+        document.getElementById('banner').classList.toggle('hidden', !url);
+      }).catch(function () { document.getElementById('banner').classList.add('hidden'); });
     }
 
     function showFatal(e) {
@@ -120,7 +130,10 @@
             return '<label class="choice"><input type="checkbox" name="' + name + '" value="' + esc(o) + '"> ' + esc(o) + '</label>';
           }).join('');
           break;
-        case 'file': input = '<input type="file" id="' + id + '" name="' + name + '" accept="image/*,application/pdf">'; break;
+        case 'file':
+          input = '<input type="file" id="' + id + '" name="' + name + '" accept="image/*,video/*" data-preview="pv_' + esc(f.key) + '">' +
+            '<div class="file-preview" id="pv_' + esc(f.key) + '"></div>';
+          break;
         default: input = '<input type="text" id="' + id + '" name="' + name + '"' + req + '>';
       }
       var wrap = (f.type === 'radio' || f.type === 'category' || f.type === 'checkbox') ? 'div' : 'label';
@@ -128,15 +141,17 @@
         (f.help ? '<span class="help">' + esc(f.help) + '</span>' : '') + input + '</' + wrap + '>';
     }
 
-    function readFile(file) {
-      return new Promise(function (resolve, reject) {
-        if (file.size > 10 * 1024 * 1024) return reject(new Error('File "' + file.name + '" lebih dari 10 MB.'));
-        var r = new FileReader();
-        r.onload = function () { resolve({ name: file.name, mimeType: file.type, data: String(r.result).split(',')[1] }); };
-        r.onerror = function () { reject(new Error('Gagal membaca file.')); };
-        r.readAsDataURL(file);
-      });
-    }
+    // Small preview under each photo/video input.
+    document.getElementById('reportForm').addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.type !== 'file' || !t.getAttribute('data-preview')) return;
+      var box = document.getElementById(t.getAttribute('data-preview'));
+      var file = t.files[0];
+      box.innerHTML = '';
+      if (!file) return;
+      var url = URL.createObjectURL(file);
+      box.innerHTML = /^video\//.test(file.type) ? '<video src="' + url + '" muted controls></video>' : '<img src="' + url + '" alt="">';
+    });
 
     document.getElementById('reportForm').addEventListener('submit', function (e) {
       e.preventDefault();
@@ -152,7 +167,7 @@
         } else if (f.type === 'file') {
           var file = form.elements[f.key].files[0];
           if (f.required && !file) missing.push(f.label);
-          if (file) pending.push(readFile(file).then(function (v) { answers[f.key] = v; }));
+          if (file) pending.push(readFile(file, 1600).then(function (v) { answers[f.key] = v; }));
         } else {
           answers[f.key] = form.elements[f.key].value;
           if (f.required && !String(answers[f.key]).trim()) missing.push(f.label);
@@ -174,6 +189,7 @@
         var keep = {};
         ['student', 'date'].forEach(function (k) { if (form.elements[k]) keep[k] = form.elements[k].value; });
         form.reset();
+        form.querySelectorAll('.file-preview').forEach(function (b) { b.innerHTML = ''; });
         Object.keys(keep).forEach(function (k) { form.elements[k].value = keep[k]; });
         dash = null;
         msg.scrollIntoView({ behavior: 'smooth' });

@@ -65,9 +65,18 @@
         </div>
       </div>
 
-      <div data-panel="Settings" class="hidden"><div class="card"><h2>Pengaturan batch</h2>
+      <div data-panel="Settings" class="hidden">
+        <div class="card"><h2>Banner halaman Guest</h2>
+          <p class="muted">Gambar ini tampil paling atas di halaman Guest (form dan dashboard) untuk batch ini. Disarankan gambar lebar, misalnya 1600 × 400 px.</p>
+          <div id="bannerPreview" class="banner" style="margin-bottom:12px"></div>
+          <div class="row"><input type="file" id="bannerFile" accept="image/*" style="max-width:320px">
+            <button class="btn primary" id="bannerUpload">Upload banner</button>
+            <button class="btn danger" id="bannerRemove">Hapus banner</button></div>
+        </div>
+        <div class="card"><h2>Pengaturan batch</h2>
         <p class="muted">Judul form, deskripsi, tanggal mulai, buka/tutup form, judul dan pengumuman dashboard. Tambah baris baru untuk catatan sendiri.</p>
-        <div id="ed_Settings"></div></div></div>
+        <div id="ed_Settings"></div></div>
+      </div>
       <div data-panel="Students" class="hidden"><div class="card"><h2>Santri</h2>
         <p class="muted">Kosongkan kolom target untuk memakai target default kategori. Santri nonaktif tidak muncul di form, tapi laporannya tetap dihitung.</p>
         <div id="ed_Students"></div></div></div>
@@ -76,7 +85,8 @@
         <div id="ed_Categories"></div></div></div>
       <div data-panel="FormFields" class="hidden"><div class="card"><h2>Pertanyaan form</h2>
         <p class="muted">Kolom "section" mengelompokkan pertanyaan. Pilihan untuk select/radio/checkbox ditulis satu per baris.
-          Pertanyaan tanggal, nama santri, jenis perangkat, dan jumlah unit dipakai dashboard sehingga tidak bisa dihapus (label dan urutannya bisa diubah).
+          Pertanyaan tanggal, nama santri, dan jenis perangkat dipakai dashboard sehingga tidak bisa dihapus (label dan urutannya bisa diubah).
+          Jumlah unit tidak ditanyakan: setiap laporan dihitung 1 unit di dashboard.
           Menghapus pertanyaan tidak menghapus jawaban lama di spreadsheet.</p>
         <div id="ed_FormFields"></div></div></div>
       <div data-panel="Milestones" class="hidden"><div class="card" style="max-width:520px"><h2>Milestone target kumulatif</h2>
@@ -158,6 +168,7 @@
       document.getElementById('lnkFolder').href = data.urls.folder;
       document.getElementById('lnkGuest').href = data.urls.app + '?batch=' + encodeURIComponent(b.id);
       renderBatches();
+      renderBanner();
       renderEditors();
       renderReports();
       if (currentTab === 'preview') loadPreview();
@@ -217,12 +228,43 @@
         .catch(function (e) { toast(e.message); });
     });
 
+    // ------------------------------------------------------------ banner
+    var bannerShownFor = null;
+    function renderBanner() {
+      var id = (all.tables.Settings.rows.filter(function (r) { return r.key === 'bannerFileId'; })[0] || {}).value || '';
+      var key = all.batch.id + '|' + id;
+      if (bannerShownFor === key) return;
+      bannerShownFor = key;
+      var box = document.getElementById('bannerPreview');
+      document.getElementById('bannerRemove').disabled = !id;
+      if (!id) { box.innerHTML = '<p class="muted" style="line-height:1.5">Belum ada banner.</p>'; return; }
+      box.innerHTML = '<p class="muted" style="line-height:1.5">Memuat…</p>';
+      call('apiGetBanner', all.batch.id).then(function (url) {
+        box.innerHTML = url ? '<img src="' + url + '" alt="Banner">' : '<p class="muted" style="line-height:1.5">File banner tidak ditemukan.</p>';
+      });
+    }
+
+    document.getElementById('bannerUpload').addEventListener('click', function () {
+      var file = document.getElementById('bannerFile').files[0], btn = this;
+      if (!file) return toast('Pilih gambar dulu.');
+      btn.disabled = true; btn.textContent = 'Mengupload…';
+      readFile(file, 2000).then(function (f) { return devCall('apiDevSetBanner', all.batch.id, f); })
+        .then(function (d) { document.getElementById('bannerFile').value = ''; apply(d); toast('Banner tersimpan.'); })
+        .catch(function (e) { toast(e.message); })
+        .then(function () { btn.disabled = false; btn.textContent = 'Upload banner'; });
+    });
+
+    document.getElementById('bannerRemove').addEventListener('click', function () {
+      if (!confirm('Hapus banner dari halaman Guest?')) return;
+      devCall('apiDevSetBanner', all.batch.id, null).then(function (d) { apply(d); toast('Banner dihapus.'); }).catch(function (e) { toast(e.message); });
+    });
+
     // ------------------------------------------------------------ table editors
     var FIELD_TYPES = [['text', 'Jawaban singkat'], ['textarea', 'Paragraf'], ['number', 'Angka'], ['date', 'Tanggal'], ['select', 'Dropdown'],
       ['radio', 'Pilihan ganda'], ['checkbox', 'Kotak centang'], ['student', 'Nama santri'], ['category', 'Kategori perangkat'], ['file', 'Upload file']];
-    // Form questions the dashboard reads. Their key and type are fixed; student/category/units also stay active.
-    var SYSTEM_KEYS = ['date', 'student', 'category', 'units'];
-    var ALWAYS_ACTIVE = ['student', 'category', 'units'];
+    // Form questions the dashboard reads. Their key and type are fixed; student/category also stay active.
+    var SYSTEM_KEYS = ['date', 'student', 'category'];
+    var ALWAYS_ACTIVE = ['student', 'category'];
 
     function columnsFor(name) {
       if (name === 'Settings') return [{ key: 'key', label: 'Key' }, { key: 'value', label: 'Nilai', type: 'textarea' }, { key: 'description', label: 'Keterangan' }];
