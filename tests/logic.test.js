@@ -138,3 +138,25 @@ test('v1 forms migrate: units and single photo removed, three photo uploads adde
   assert.ok(!fresh.FormFields.some(f => f.key === 'units' || f.key === 'photo'));
   assert.strictEqual(L.settingsToObject_(fresh.Settings).schemaVersion, String(L.SCHEMA_VERSION));
 });
+
+test('each santri carries their own reports, newest first, with extra answers', () => {
+  const t = batch();
+  const fields = [
+    { key: 'date', type: 'date', active: 'true' }, { key: 'student', type: 'student', active: 'true' },
+    { key: 'device_model', label: 'Model', type: 'text', active: 'true' },
+    { key: 'notes', label: 'Catatan', type: 'textarea', active: 'false' },
+    { key: 'photo_before', label: 'Foto', type: 'file', active: 'true' }
+  ];
+  const reports = [
+    { id: 'a', date: '2026-10-01', student: 'S001', category: 'android', device_model: 'Redmi 9', notes: 'x', photo_before: 'http://f' },
+    { id: 'b', date: '2026-10-03', student: 'S001', category: 'iphone', device_model: '' },
+    { id: 'c', date: '2026-10-02', student: 'S002', category: 'android' }
+  ];
+  const d = L.computeDashboard_({ settings: L.settingsToObject_(t.Settings), categories: t.Categories, students: t.Students,
+    milestones: t.Milestones, fields, reports, today: '2026-10-05' });
+  const abdul = d.students.find(s => s.id === 'S001');
+  assert.deepStrictEqual(abdul.reports.map(r => r.date), ['2026-10-03', '2026-10-01']);
+  assert.deepStrictEqual(abdul.reports[1].details, [{ label: 'Model', value: 'Redmi 9' }]);
+  assert.deepStrictEqual(abdul.reports[0].details, []);
+  assert.strictEqual(d.students.find(s => s.id === 'S002').reports.length, 1);
+});

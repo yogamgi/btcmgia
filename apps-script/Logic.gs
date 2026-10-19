@@ -146,7 +146,7 @@ function findCategory_(categories, value) {
 
 /**
  * Builds everything the dashboard shows.
- * input: { settings, categories, students, milestones, reports, today: 'yyyy-MM-dd' }
+ * input: { settings, categories, students, milestones, reports, fields, today: 'yyyy-MM-dd' }
  */
 function computeDashboard_(input) {
   var settings = input.settings || {};
@@ -163,13 +163,17 @@ function computeDashboard_(input) {
   var lastMilestoneDay = milestones.length ? milestones[milestones.length - 1].day : 0;
   var seriesLen = Math.min(180, Math.max(day, durationDays, lastMilestoneDay, 1));
   var expected = interpolateMilestone_(milestones, day);
+  // Extra answers shown in a santri's own report list (no system fields, no uploads).
+  var detailFields = (input.fields || []).filter(function (f) {
+    return f.key && !SYSTEM_FIELDS[f.key] && f.type !== 'file' && toBool_(f.active === undefined ? true : f.active);
+  });
 
   var rowsById = {};
   var order = [];
   allStudents.forEach(function (s) {
     var r = {
       id: String(s.id), name: s.name, nickname: s.nickname || '', active: toBool_(s.active),
-      done: {}, target: {}, ach: {}, totalDone: 0, totalTarget: 0, daily: []
+      done: {}, target: {}, ach: {}, totalDone: 0, totalTarget: 0, daily: [], reports: []
     };
     for (var i = 0; i < seriesLen; i++) r.daily.push(0);
     cats.forEach(function (c) { r.done[c.key] = 0; r.target[c.key] = studentTarget_(s, c); r.totalTarget += r.target[c.key]; });
@@ -192,8 +196,15 @@ function computeDashboard_(input) {
     var idx = (d == null || startDay == null) ? seriesLen - 1 : d - startDay;
     idx = Math.max(0, Math.min(seriesLen - 1, idx));
     row.daily[idx] += units;
-    recent.push({ id: rep.id, date: rep.date || String(rep.submittedAt || '').slice(0, 10), submittedAt: rep.submittedAt || '',
-      studentId: row.id, studentName: row.name, category: c.label, units: units });
+    var entry = { id: rep.id, date: rep.date || String(rep.submittedAt || '').slice(0, 10), submittedAt: rep.submittedAt || '',
+      studentId: row.id, studentName: row.name, category: c.label, units: units };
+    recent.push(entry);
+    var details = [];
+    detailFields.forEach(function (f) {
+      var v = rep[f.key];
+      if (v != null && String(v).trim() !== '') details.push({ label: f.label || f.key, value: String(v) });
+    });
+    row.reports.push({ date: entry.date, submittedAt: entry.submittedAt, category: c.label, units: units, details: details });
   });
 
   var students = order.filter(function (r) { return r.active || r.totalDone > 0; });
@@ -214,6 +225,7 @@ function computeDashboard_(input) {
     var cum = 0;
     r.cumulative = r.daily.map(function (u) { cum += u; return cum; });
     delete r.daily;
+    r.reports.sort(function (a, b) { return String(b.date + b.submittedAt).localeCompare(String(a.date + a.submittedAt)); });
     totals.totalDone += r.totalDone;
     totals.totalTarget += r.totalTarget;
   });

@@ -376,7 +376,7 @@ function apiGetDashboard(batchId) {
   var data = loadBatchData_(ss);
   var dash = computeDashboard_({
     settings: data.settings, categories: data.categories, students: data.students,
-    milestones: data.milestones, reports: readTable_(ss, 'Reports').rows, today: today_()
+    milestones: data.milestones, fields: data.fields, reports: readTable_(ss, 'Reports').rows, today: today_()
   });
   dash.batch = { id: meta.id, name: meta.name, status: meta.status };
   dash.batches = publicBatchList_();

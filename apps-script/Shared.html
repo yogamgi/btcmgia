@@ -110,27 +110,14 @@
       html += '<button class="chip' + (sel === s.id ? ' active' : '') + '" data-student="' + esc(s.id) + '">' +
         esc(s.nickname || s.name.split(' ')[0]) + '</button>';
     });
-    html += '</div><div class="table-wrap"><table><thead><tr><th rowspan="2">No.</th><th rowspan="2">Nama</th>';
-    html += '<th class="group" colspan="' + cats.length + '">Done</th><th class="group" colspan="' + cats.length + '">Target</th>';
-    html += '<th class="group" colspan="' + cats.length + '">Achievement</th><th class="group" colspan="3">Akumulasi</th><th rowspan="2">Status</th></tr><tr>';
-    for (var g = 0; g < 3; g++) cats.forEach(function (c) { html += '<th class="num">' + esc(c.label) + '</th>'; });
-    html += '<th class="num">Prog.</th><th class="num">%</th><th></th></tr></thead><tbody>';
-    students.forEach(function (s, i) {
-      html += '<tr class="' + (sel === s.id ? 'selected' : '') + '"><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td>';
-      cats.forEach(function (c) { html += '<td class="num">' + fmtNum(s.done[c.key]) + '</td>'; });
-      cats.forEach(function (c) { html += '<td class="num">' + fmtNum(s.target[c.key]) + '</td>'; });
-      cats.forEach(function (c) { html += '<td class="num">' + fmtPct(s.ach[c.key]) + '</td>'; });
-      html += '<td class="num">' + fmtNum(s.totalDone) + '</td><td class="num">' + fmtPct(s.pct) + '</td>';
-      html += '<td><div class="bar"><i style="width:' + Math.min(100, s.pct || 0) + '%"></i></div></td>';
-      html += '<td>' + statusPill(s.status) + '</td></tr>';
-    });
-    if (!students.length) html += '<tr><td colspan="' + (6 + cats.length * 3) + '" class="muted">Belum ada santri.</td></tr>';
-    html += '</tbody></table></div></div>';
+    html += '</div>';
+    html += selStudent ? studentReportsHtml(selStudent) : studentTableHtml(students, cats);
+    html += '</div>';
 
     html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
     html += '<div class="card"><h2>Progres kumulatif ' + (selStudent ? '– ' + esc(selStudent.name) : '(rata-rata santri)') +
       '</h2><div class="chart-box"><canvas id="chartLine"></canvas></div></div>';
-    html += '<div class="card"><h2>Unit selesai per santri</h2><div class="chart-box"><canvas id="chartBar"></canvas></div></div>';
+    if (!selStudent) html += '<div class="card"><h2>Unit selesai per santri</h2><div class="chart-box"><canvas id="chartBar"></canvas></div></div>';
     html += '</div>';
 
     html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
@@ -140,7 +127,7 @@
     });
     if (!d.milestones.length) html += '<tr><td colspan="2" class="muted">Belum ada milestone.</td></tr>';
     html += '</tbody></table></div></div>';
-    if (d.showRecent) {
+    if (d.showRecent && !selStudent) {
       var rec = d.recent.filter(function (r) { return !sel || r.studentId === sel; }).slice(0, 15);
       html += '<div class="card"><h2>Laporan terbaru</h2><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Nama</th><th>Perangkat</th><th class="num">Unit</th></tr></thead><tbody>';
       rec.forEach(function (r) {
@@ -159,6 +146,40 @@
       });
     });
     drawCharts(d, selStudent);
+  }
+
+  // "Semua": one row per santri with done / target / achievement per device type.
+  function studentTableHtml(students, cats) {
+    var html = '<div class="table-wrap"><table><thead><tr><th rowspan="2">No.</th><th rowspan="2">Nama</th>';
+    html += '<th class="group" colspan="' + cats.length + '">Done</th><th class="group" colspan="' + cats.length + '">Target</th>';
+    html += '<th class="group" colspan="' + cats.length + '">Achievement</th><th class="group" colspan="3">Akumulasi</th><th rowspan="2">Status</th></tr><tr>';
+    for (var g = 0; g < 3; g++) cats.forEach(function (c) { html += '<th class="num">' + esc(c.label) + '</th>'; });
+    html += '<th class="num">Prog.</th><th class="num">%</th><th></th></tr></thead><tbody>';
+    students.forEach(function (s, i) {
+      html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td>';
+      cats.forEach(function (c) { html += '<td class="num">' + fmtNum(s.done[c.key]) + '</td>'; });
+      cats.forEach(function (c) { html += '<td class="num">' + fmtNum(s.target[c.key]) + '</td>'; });
+      cats.forEach(function (c) { html += '<td class="num">' + fmtPct(s.ach[c.key]) + '</td>'; });
+      html += '<td class="num">' + fmtNum(s.totalDone) + '</td><td class="num">' + fmtPct(s.pct) + '</td>';
+      html += '<td><div class="bar"><i style="width:' + Math.min(100, s.pct || 0) + '%"></i></div></td>';
+      html += '<td>' + statusPill(s.status) + '</td></tr>';
+    });
+    if (!students.length) html += '<tr><td colspan="' + (6 + cats.length * 3) + '" class="muted">Belum ada santri.</td></tr>';
+    return html + '</tbody></table></div>';
+  }
+
+  // One santri selected: every unit they reported through the form, newest first.
+  function studentReportsHtml(s) {
+    var reps = s.reports || [];
+    var html = '<h2>Unit yang dilaporkan – ' + esc(s.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' laporan)</span></h2>';
+    html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Perangkat</th><th>Detail</th><th class="num">Unit</th></tr></thead><tbody>';
+    reps.forEach(function (r, i) {
+      var det = (r.details || []).map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
+      html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + esc(r.category) + '</td><td>' + (det || '<span class="muted">–</span>') +
+        '</td><td class="num">' + fmtNum(r.units) + '</td></tr>';
+    });
+    if (!reps.length) html += '<tr><td colspan="5" class="muted">Belum ada laporan dari santri ini.</td></tr>';
+    return html + '</tbody></table></div>';
   }
 
   function kpi(label, value, hint) {
@@ -203,6 +224,7 @@
         plugins: { legend: { labels: { color: text } } } }
     });
     var palette = ['#0f6e5a', '#3b82c4', '#c27c0e', '#8e5bd1', '#c2410c', '#64748b'];
+    if (!document.getElementById('chartBar')) return;
     charts.bar = new Chart(document.getElementById('chartBar'), {
       type: 'bar',
       data: { labels: d.students.map(function (s) { return s.nickname || s.name.split(' ')[0]; }),
