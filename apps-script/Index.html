@@ -10,39 +10,48 @@
   <div id="banner" class="banner hidden"><img id="bannerImg" alt="Banner"></div>
   <header class="top">
     <div>
-      <h1>Stage 1 - Akademi BTC</h1>
-      <div class="sub" id="subtitle">Boarding Technician Camp</div>
+      <h1>BTC - Boarding Technician Camp</h1>
+      <div class="sub" id="subtitle"></div>
     </div>
     <label class="row"><span class="muted">Batch</span>
       <select id="batchSelect" style="width:auto"></select>
     </label>
   </header>
   <main>
-    <nav class="tabs" id="tabs">
-      <button data-tab="form" class="active">Isi Laporan</button>
-      <button data-tab="dashboard">Dashboard</button>
-    </nav>
-
-    <section data-panel="form">
-      <div class="card" style="max-width:720px">
-        <h2 id="formTitle">Laporan</h2>
-        <p class="muted" id="formDesc"></p>
-        <div id="formMsg"></div>
-        <form id="reportForm" novalidate><div class="loading">Memuat form…</div></form>
-      </div>
+    <section id="home">
+      <h2 style="margin:0 0 12px">Pilih stage</h2>
+      <div class="grid stage-grid" id="stageList"><div class="loading">Memuat…</div></div>
     </section>
 
-    <section data-panel="dashboard" class="hidden">
-      <h2 id="dashTitle" style="margin:0 0 12px">Dashboard Santri</h2>
-      <div id="dashboard"><div class="loading">Memuat dashboard…</div></div>
+    <section id="stageView" class="hidden">
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn sm" id="backBtn">← Semua stage</button>
+        <h2 id="stageTitle" style="margin:0"></h2>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button data-tab="form" class="active">Isi Laporan</button>
+        <button data-tab="dashboard">Dashboard</button>
+      </nav>
+      <section data-panel="form">
+        <div class="card" style="max-width:720px">
+          <h2 id="formTitle">Laporan</h2>
+          <p class="muted" id="formDesc"></p>
+          <div id="formMsg"></div>
+          <form id="reportForm" novalidate></form>
+        </div>
+      </section>
+      <section data-panel="dashboard" class="hidden">
+        <h2 id="dashTitle" style="margin:0 0 12px">Dashboard</h2>
+        <div id="dashboard"></div>
+      </section>
     </section>
   </main>
   <div id="toast"></div>
 
   <?!= include('Shared'); ?>
   <script>
-    var INITIAL_BATCH = '<?= initialBatch ?>';
-    var pub = null, dash = null, dashState = { selected: '' }, currentTab = 'form';
+    var INITIAL_BATCH = '<?= initialBatch ?>', INITIAL_STAGE = '<?= initialStage ?>', INITIAL_VIEW = '<?= initialView ?>';
+    var pub = null, stage = null, form = null, dash = {}, dashState = { selected: '' }, currentTab = 'form';
 
     setTabs(document.getElementById('tabs'), function (tab) {
       currentTab = tab;
@@ -50,28 +59,27 @@
     });
 
     document.getElementById('batchSelect').addEventListener('change', function (e) {
-      dashState.selected = '';
       loadPublic(e.target.value);
     });
+    document.getElementById('backBtn').addEventListener('click', showHome);
 
     function loadPublic(batchId) {
-      document.getElementById('reportForm').innerHTML = '<div class="loading">Memuat form…</div>';
-      call('apiGetPublic', batchId || '').then(function (p) {
+      document.getElementById('stageList').innerHTML = '<div class="loading">Memuat…</div>';
+      showHome();
+      return call('apiGetPublic', batchId || '').then(function (p) {
         pub = p;
+        dash = {};
         var sel = document.getElementById('batchSelect');
         sel.innerHTML = p.batches.map(function (b) {
           return '<option value="' + esc(b.id) + '"' + (b.id === p.batch.id ? ' selected' : '') + '>' +
             esc(b.name) + (b.status === 'archived' ? ' (arsip)' : '') + '</option>';
         }).join('');
-        document.getElementById('subtitle').textContent = (p.settings.stageName || 'Stage 1') + ' · ' + p.settings.batchName;
-        document.getElementById('formTitle').textContent = p.settings.formTitle;
-        document.getElementById('formDesc').textContent = p.settings.formDescription;
-        document.getElementById('dashTitle').textContent = p.settings.dashboardTitle;
-        renderForm();
+        document.getElementById('subtitle').textContent = p.batchName;
+        renderStages();
         loadBanner(p.batch.id);
-        dash = null;
-        if (currentTab === 'dashboard') loadDashboard();
-      }).catch(showFatal);
+      }).catch(function (e) {
+        document.getElementById('stageList').innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+      });
     }
 
     function loadBanner(batchId) {
@@ -82,24 +90,55 @@
       }).catch(function () { document.getElementById('banner').classList.add('hidden'); });
     }
 
-    function showFatal(e) {
-      document.getElementById('reportForm').innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+    function renderStages() {
+      var el = document.getElementById('stageList');
+      el.innerHTML = pub.stages.map(function (st) {
+        var usable = !!pub.forms[st.key];
+        var pill = st.status !== 'open' ? '<span class="pill none">🔒 Terkunci</span>'
+          : usable ? '<span class="pill ok">Terbuka</span>' : '<span class="pill none">Segera hadir</span>';
+        return '<button class="stage-card" data-stage="' + esc(st.key) + '"' + (usable ? '' : ' disabled') + '>' +
+          '<span class="name">' + esc(st.name) + '</span><span class="desc">' + esc(st.description) + '</span><span>' + pill + '</span></button>';
+      }).join('');
+      el.querySelectorAll('[data-stage]').forEach(function (b) {
+        b.addEventListener('click', function () { openStage(b.getAttribute('data-stage')); });
+      });
+    }
+
+    function showHome() {
+      stage = null;
+      document.getElementById('home').classList.remove('hidden');
+      document.getElementById('stageView').classList.add('hidden');
+    }
+
+    function openStage(key, view) {
+      if (!pub.forms[key]) return;
+      stage = pub.stages.filter(function (s) { return s.key === key; })[0];
+      form = pub.forms[key];
+      dashState.selected = '';
+      document.getElementById('home').classList.add('hidden');
+      document.getElementById('stageView').classList.remove('hidden');
+      document.getElementById('stageTitle').textContent = stage.name;
+      document.getElementById('formTitle').textContent = form.settings.formTitle;
+      document.getElementById('formDesc').textContent = form.settings.formDescription;
+      document.getElementById('dashTitle').textContent = form.settings.dashboardTitle;
+      renderForm();
+      document.querySelector('#tabs [data-tab="' + (view === 'dashboard' ? 'dashboard' : 'form') + '"]').click();
     }
 
     function renderForm() {
-      var form = document.getElementById('reportForm');
+      var el = document.getElementById('reportForm');
       document.getElementById('formMsg').innerHTML = '';
-      if (!pub.settings.formOpen) {
-        form.innerHTML = '<div class="notice info">Form untuk batch ini sedang ditutup.</div>';
+      if (!form.settings.formOpen) {
+        el.innerHTML = '<div class="notice info">Form untuk batch ini sedang ditutup.</div>';
         return;
       }
       var html = '', section = null;
-      pub.fields.forEach(function (f) {
+      form.fields.forEach(function (f) {
         if (f.section && f.section !== section) { section = f.section; html += '<h3>' + esc(section) + '</h3>'; }
         html += fieldHtml(f);
       });
       html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim laporan</button></div>';
-      form.innerHTML = html;
+      el.innerHTML = html;
     }
 
     function fieldHtml(f) {
@@ -119,7 +158,7 @@
           break;
         case 'category':
         case 'radio':
-          var opts = f.type === 'category' ? pub.categories.map(function (c) { return { v: c.key, l: c.label }; })
+          var opts = f.type === 'category' ? form.categories.map(function (c) { return { v: c.key, l: c.label }; })
             : f.options.map(function (o) { return { v: o, l: o }; });
           input = opts.map(function (o) {
             return '<label class="choice"><input type="radio" name="' + name + '" value="' + esc(o.v) + '"> ' + esc(o.l) + '</label>';
@@ -155,21 +194,21 @@
 
     document.getElementById('reportForm').addEventListener('submit', function (e) {
       e.preventDefault();
-      var form = e.target, answers = {}, missing = [], pending = [];
-      pub.fields.forEach(function (f) {
+      var el = e.target, answers = {}, missing = [], pending = [];
+      form.fields.forEach(function (f) {
         if (f.type === 'checkbox') {
-          answers[f.key] = Array.prototype.map.call(form.querySelectorAll('input[name="' + f.key + '"]:checked'), function (x) { return x.value; });
+          answers[f.key] = Array.prototype.map.call(el.querySelectorAll('input[name="' + f.key + '"]:checked'), function (x) { return x.value; });
           if (f.required && !answers[f.key].length) missing.push(f.label);
         } else if (f.type === 'radio' || f.type === 'category') {
-          var c = form.querySelector('input[name="' + f.key + '"]:checked');
+          var c = el.querySelector('input[name="' + f.key + '"]:checked');
           answers[f.key] = c ? c.value : '';
           if (f.required && !c) missing.push(f.label);
         } else if (f.type === 'file') {
-          var file = form.elements[f.key].files[0];
+          var file = el.elements[f.key].files[0];
           if (f.required && !file) missing.push(f.label);
           if (file) pending.push(readFile(file, 1600).then(function (v) { answers[f.key] = v; }));
         } else {
-          answers[f.key] = form.elements[f.key].value;
+          answers[f.key] = el.elements[f.key].value;
           if (f.required && !String(answers[f.key]).trim()) missing.push(f.label);
         }
       });
@@ -179,19 +218,19 @@
         msg.scrollIntoView({ behavior: 'smooth' });
         return;
       }
-      var btn = document.getElementById('submitBtn');
+      var btn = document.getElementById('submitBtn'), stageKey = stage.key;
       btn.disabled = true; btn.textContent = 'Mengirim…';
       Promise.all(pending).then(function () {
-        return call('apiSubmitReport', pub.batch.id, answers);
+        return call('apiSubmitReport', pub.batch.id, answers, stageKey);
       }).then(function () {
-        msg.innerHTML = '<div class="notice ok">' + esc(pub.settings.successMessage) + '</div>';
+        msg.innerHTML = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
         // Keep name and date so the same santri can quickly send another report.
         var keep = {};
-        ['student', 'date'].forEach(function (k) { if (form.elements[k]) keep[k] = form.elements[k].value; });
-        form.reset();
-        form.querySelectorAll('.file-preview').forEach(function (b) { b.innerHTML = ''; });
-        Object.keys(keep).forEach(function (k) { form.elements[k].value = keep[k]; });
-        dash = null;
+        ['student', 'date'].forEach(function (k) { if (el.elements[k]) keep[k] = el.elements[k].value; });
+        el.reset();
+        el.querySelectorAll('.file-preview').forEach(function (b) { b.innerHTML = ''; });
+        Object.keys(keep).forEach(function (k) { el.elements[k].value = keep[k]; });
+        delete dash[stageKey];
         msg.scrollIntoView({ behavior: 'smooth' });
       }).catch(function (err) {
         msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>';
@@ -203,17 +242,21 @@
 
     function loadDashboard() {
       var el = document.getElementById('dashboard');
-      if (!pub) return;
-      if (dash && dash.batch.id === pub.batch.id) { renderDashboard(el, dash, dashState); return; }
+      if (!pub || !stage) return;
+      var key = stage.key;
+      if (dash[key]) { renderAnyDashboard(el, dash[key], dashState); return; }
       el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
-      call('apiGetDashboard', pub.batch.id).then(function (d) {
-        dash = d;
-        renderDashboard(el, d, dashState);
+      call('apiGetDashboard', pub.batch.id, key).then(function (d) {
+        dash[key] = d;
+        if (stage && stage.key === key) renderAnyDashboard(el, d, dashState);
       }).catch(function (e) { el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
     }
 
-    if ('<?= initialView ?>' === 'dashboard') document.querySelector('[data-tab="dashboard"]').click();
-    loadPublic(INITIAL_BATCH);
+    loadPublic(INITIAL_BATCH).then(function () {
+      // Old links (?view=dashboard without a stage) meant Stage 1.
+      var key = INITIAL_STAGE || (INITIAL_VIEW === 'dashboard' ? 'stage1' : '');
+      if (pub && key && pub.forms[key]) openStage(key, INITIAL_VIEW);
+    });
   </script>
 </body>
 </html>

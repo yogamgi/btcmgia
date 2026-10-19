@@ -1,16 +1,20 @@
 /**
- * Stage 1 - Akademi BTC: web app entry point, Drive/Sheets storage, and the
+ * BTC (Boarding Technician Camp) stages app: web app entry point, Drive/Sheets storage, and the
  * functions the Guest and Dev pages call through google.script.run.
  *
  * Storage layout (inside the root folder chosen by the developer):
  *   <root>/Akademi BTC Stage 1 - Registry      list of batches
- *   <root>/Stage 1 - Akademi BTC - Batch 4/     one folder per batch
- *       ... - Data   (spreadsheet: Settings, Categories, Students, FormFields, Milestones, Reports)
+ *   <root>/Stage 1 - Akademi BTC - Batch 4/     one folder per batch (older name kept for existing batches)
+ *       ... - Data   (spreadsheet)
+ *           Students                                      shared by every stage
+ *           Stages                                        name, description, open/locked per stage
+ *           S0_FormFields, S0_Reports                     Stage 0 - Orientasi
+ *           Settings, Categories, FormFields, Milestones, Reports   Stage 1 - Akademi
  *       Uploads/     (photos attached to reports)
  * Every batch has its own spreadsheet, so a new batch never touches an older one.
  */
 
-var APP_NAME = 'Stage 1 - Akademi BTC';
+var APP_NAME = 'BTC - Boarding Technician Camp';
 var DEFAULT_ROOT_FOLDER_NAME = 'Akademi BTC - Stage 1';
 var REGISTRY_FILE_NAME = 'Akademi BTC Stage 1 - Registry';
 var REGISTRY_HEADERS = ['id', 'name', 'spreadsheetId', 'folderId', 'status', 'isDefault', 'createdAt'];
@@ -27,6 +31,7 @@ function doGet(e) {
   t.isOwner = page === 'Setup' && isOwner_();
   t.initialBatch = String(p.batch || '').replace(/[^A-Za-z0-9_-]/g, '');
   t.initialView = p.view === 'dashboard' ? 'dashboard' : 'form';
+  t.initialStage = STAGE_TABLES[p.stage] ? String(p.stage) : '';
   return t.evaluate()
     .setTitle(APP_NAME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
@@ -206,9 +211,22 @@ function migrateBatch_(ss) {
   var settingsRows = readTable_(ss, 'Settings').rows;
   var version = toNum_(settingsToObject_(settingsRows).schemaVersion, 1);
   if (version >= SCHEMA_VERSION) return settingsRows;
-  var fields = sanitizeTable_('FormFields', migrateFormFields_(readTable_(ss, 'FormFields').rows, version), {});
-  writeTable_(ss, 'FormFields', fields.headers, fields.rows);
-  ensureHeaders_(getOrCreateSheet_(ss, 'Reports'), reportHeaders_(fields.rows));
+  if (version < 2) {
+    var fields = sanitizeTable_('FormFields', migrateFormFields_(readTable_(ss, 'FormFields').rows, version), {});
+    writeTable_(ss, 'FormFields', fields.headers, fields.rows);
+    ensureHeaders_(getOrCreateSheet_(ss, 'Reports'), reportHeaders_(fields.rows));
+  }
+  if (version < 3) {
+    // Stages arrive: Stage 0 gets its own form, Stage 1 starts locked until a Dev opens it.
+    if (!readTable_(ss, 'Stages').rows.length) {
+      writeTable_(ss, 'Stages', TABLE_HEADERS.Stages, sanitizeTable_('Stages', [], {}).rows);
+    }
+    if (!readTable_(ss, 'S0_FormFields').rows.length) {
+      var s0 = sanitizeTable_('S0_FormFields', defaultStage0Fields_(), {});
+      writeTable_(ss, 'S0_FormFields', s0.headers, s0.rows);
+    }
+    ensureHeaders_(getOrCreateSheet_(ss, 'S0_Reports'), reportHeaders_(readTable_(ss, 'S0_FormFields').rows));
+  }
   var found = false;
   settingsRows.forEach(function (r) { if (r.key === 'schemaVersion') { r.value = String(SCHEMA_VERSION); found = true; } });
   if (!found) settingsRows.push({ key: 'schemaVersion', value: String(SCHEMA_VERSION), description: 'Versi struktur data (jangan diubah)' });
@@ -227,8 +245,22 @@ function loadBatchData_(ss) {
     categories: readTable_(ss, 'Categories').rows,
     students: readTable_(ss, 'Students').rows,
     fields: readTable_(ss, 'FormFields').rows,
-    milestones: readTable_(ss, 'Milestones').rows
+    milestones: readTable_(ss, 'Milestones').rows,
+    stages: stagesFrom_(readTable_(ss, 'Stages').rows),
+    s0fields: readTable_(ss, 'S0_FormFields').rows
   };
+}
+
+/** The stage `key` of a batch; throws for unknown keys and, unless `allowLocked`, for locked ones. */
+function stageOf_(data, key, allowLocked) {
+  var st = data.stages.filter(function (x) { return x.key === key; })[0];
+  if (!st) throw new Error('Stage tidak dikenal: ' + key);
+  if (!allowLocked && st.status !== 'open') throw new Error(st.name + ' masih terkunci.');
+  return st;
+}
+
+function stageFields_(data, key) {
+  return key === 'stage0' ? data.s0fields : data.fields;
 }
 
 /**
@@ -255,7 +287,10 @@ function createBatch_(opts) {
       Categories: srcData.categories,
       Students: opts.copyStudents ? srcData.students : [],
       FormFields: srcData.fields,
-      Milestones: srcData.milestones
+      Milestones: srcData.milestones,
+      S0_FormFields: srcData.s0fields,
+      // Names and descriptions carry over; a new batch starts with the default open/locked status.
+      Stages: srcData.stages.map(function (st, i) { return { key: st.key, name: st.name, description: st.description, status: STAGES[i].status }; })
     };
   } else {
     tables = defaultBatchTables_(name, startDate);
@@ -282,6 +317,10 @@ function createBatch_(opts) {
   var ms = sanitizeTable_('Milestones', tables.Milestones, {});
   writeTable_(ss, 'Milestones', ms.headers, ms.rows);
   writeTable_(ss, 'Reports', reportHeaders_(fields.rows), []);
+  writeTable_(ss, 'Stages', TABLE_HEADERS.Stages, sanitizeTable_('Stages', tables.Stages, {}).rows);
+  var s0 = sanitizeTable_('S0_FormFields', tables.S0_FormFields, {});
+  writeTable_(ss, 'S0_FormFields', s0.headers, s0.rows);
+  writeTable_(ss, 'S0_Reports', reportHeaders_(s0.rows), []);
   var first = ss.getSheetByName('Sheet1') || ss.getSheetByName('Sheet 1');
   if (first && ss.getSheets().length > 1) ss.deleteSheet(first);
 
@@ -296,37 +335,66 @@ function createBatch_(opts) {
 
 // ---------------------------------------------------------------- guest API
 
+function publicFields_(fields) {
+  return activeFields_(fields).map(function (f) {
+    return { key: f.key, label: f.label, type: f.type, options: splitOptions_(f.options),
+      required: toBool_(f.required), section: f.section || '', help: f.help || '' };
+  });
+}
+
+/** Everything the Guest page needs: the stages, and the form of every open stage. Locked stages send no form. */
 function apiGetPublic(batchId) {
   var meta = resolveBatch_(batchId);
   var data = loadBatchData_(SpreadsheetApp.openById(meta.spreadsheetId));
   var s = data.settings;
+  var archived = meta.status === 'archived';
+  var forms = {};
+  data.stages.forEach(function (st) {
+    if (st.status !== 'open' || !st.ready) return;
+    if (st.key === 'stage1') {
+      forms.stage1 = {
+        settings: {
+          formTitle: s.formTitle || st.name, formDescription: s.formDescription || '',
+          successMessage: s.successMessage || 'Terima kasih, laporan tersimpan.',
+          formOpen: !archived && (s.formOpen === undefined ? true : toBool_(s.formOpen)),
+          dashboardTitle: s.dashboardTitle || 'Dashboard Santri'
+        },
+        fields: publicFields_(data.fields),
+        categories: activeCategories_(data.categories).map(function (c) { return { key: c.key, label: c.label }; })
+      };
+    } else {
+      forms[st.key] = {
+        settings: { formTitle: st.name, formDescription: st.description, successMessage: 'Terima kasih, laporan tersimpan.',
+          formOpen: !archived, dashboardTitle: 'Rekap ' + st.name },
+        fields: publicFields_(stageFields_(data, st.key)),
+        categories: []
+      };
+    }
+  });
   return {
     batches: publicBatchList_(),
     batch: { id: meta.id, name: meta.name, status: meta.status },
-    settings: {
-      batchName: s.batchName || meta.name, stageName: s.stageName || '', formTitle: s.formTitle || APP_NAME,
-      formDescription: s.formDescription || '', successMessage: s.successMessage || 'Terima kasih, laporan tersimpan.',
-      formOpen: meta.status !== 'archived' && (s.formOpen === undefined ? true : toBool_(s.formOpen)),
-      dashboardTitle: s.dashboardTitle || 'Dashboard Santri'
-    },
-    fields: activeFields_(data.fields).map(function (f) {
-      return { key: f.key, label: f.label, type: f.type, options: splitOptions_(f.options),
-        required: toBool_(f.required), section: f.section || '', help: f.help || '' };
-    }),
-    categories: activeCategories_(data.categories).map(function (c) { return { key: c.key, label: c.label }; }),
+    batchName: s.batchName || meta.name,
+    stages: data.stages,
+    forms: forms,
     students: activeStudents_(data.students).map(function (st) { return { id: String(st.id), name: st.name, nickname: st.nickname || '' }; })
       .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }),
     today: today_()
   };
 }
 
-function apiSubmitReport(batchId, answers) {
+/** stageKey defaults to Stage 1 so a Guest page loaded before stages existed still submits correctly. */
+function apiSubmitReport(batchId, answers, stageKey) {
+  stageKey = stageKey || 'stage1';
   var meta = resolveBatch_(batchId);
   if (meta.status === 'archived') throw new Error('Batch ini sudah ditutup.');
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
   var data = loadBatchData_(ss);
-  if (data.settings.formOpen !== undefined && !toBool_(data.settings.formOpen)) throw new Error('Form sedang ditutup.');
-  var result = validateReport_(data.fields, answers, data.students, data.categories);
+  stageOf_(data, stageKey, false);
+  if (!STAGE_TABLES[stageKey]) throw new Error('Form untuk stage ini belum tersedia.');
+  if (stageKey === 'stage1' && data.settings.formOpen !== undefined && !toBool_(data.settings.formOpen)) throw new Error('Form sedang ditutup.');
+  var fields = stageFields_(data, stageKey);
+  var result = validateReport_(fields, answers, data.students, data.categories);
   if (result.errors.length) throw new Error(result.errors.join('\n'));
 
   result.files.forEach(function (key) {
@@ -334,8 +402,8 @@ function apiSubmitReport(batchId, answers) {
   });
 
   return withLock_(function () {
-    var sh = getOrCreateSheet_(ss, 'Reports');
-    var headers = ensureHeaders_(sh, reportHeaders_(activeFields_(data.fields)));
+    var sh = getOrCreateSheet_(ss, STAGE_TABLES[stageKey].reports);
+    var headers = ensureHeaders_(sh, reportHeaders_(activeFields_(fields)));
     var row = result.values;
     row.id = Utilities.getUuid().slice(0, 13);
     row.submittedAt = now_();
@@ -370,18 +438,28 @@ function apiGetBanner(batchId) {
   }
 }
 
-function apiGetDashboard(batchId) {
-  var meta = resolveBatch_(batchId);
+function dashboardFor_(meta, stageKey, allowLocked) {
+  stageKey = stageKey || 'stage1';
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
   var data = loadBatchData_(ss);
-  var dash = computeDashboard_({
-    settings: data.settings, categories: data.categories, students: data.students,
-    milestones: data.milestones, fields: data.fields, reports: readTable_(ss, 'Reports').rows, today: today_()
-  });
+  var st = stageOf_(data, stageKey, allowLocked);
+  if (!STAGE_TABLES[stageKey]) throw new Error('Dashboard untuk stage ini belum tersedia.');
+  var reports = readTable_(ss, STAGE_TABLES[stageKey].reports).rows;
+  var dash = stageKey === 'stage1'
+    ? computeDashboard_({
+      settings: data.settings, categories: data.categories, students: data.students,
+      milestones: data.milestones, fields: data.fields, reports: reports, today: today_()
+    })
+    : computeRecap_({ fields: stageFields_(data, stageKey), students: data.students, reports: reports });
+  dash.stage = { key: st.key, name: st.name, status: st.status };
   dash.batch = { id: meta.id, name: meta.name, status: meta.status };
   dash.batches = publicBatchList_();
   if (!dash.batchName) dash.batchName = meta.name;
   return dash;
+}
+
+function apiGetDashboard(batchId, stageKey) {
+  return dashboardFor_(resolveBatch_(batchId), stageKey, false);
 }
 
 // ---------------------------------------------------------------- dev API
@@ -424,13 +502,19 @@ function apiDevChangePassword(token, newPassword) {
   return true;
 }
 
+/** Dashboard preview for Dev, also for locked stages. */
+function apiDevGetDashboard(token, batchId, stageKey) {
+  requireDev_(token);
+  return dashboardFor_(resolveBatch_(batchId), stageKey, true);
+}
+
 function apiDevGetAll(token, batchId) {
   requireDev_(token);
   var meta = resolveBatch_(batchId);
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
   migrateBatch_(ss);
   var tables = {};
-  EDITABLE_TABLES.concat(['Reports']).forEach(function (n) { tables[n] = readTable_(ss, n); });
+  EDITABLE_TABLES.concat(['Reports', 'S0_Reports']).forEach(function (n) { tables[n] = readTable_(ss, n); });
   return {
     batches: listBatches_(),
     batch: meta,
@@ -461,6 +545,7 @@ function apiDevSaveTable(token, batchId, name, rows) {
       writeTable_(ss, 'Students', st.headers, st.rows);
     }
     if (name === 'FormFields') ensureHeaders_(getOrCreateSheet_(ss, 'Reports'), reportHeaders_(clean.rows));
+    if (name === 'S0_FormFields') ensureHeaders_(getOrCreateSheet_(ss, 'S0_Reports'), reportHeaders_(clean.rows));
     if (name === 'Settings') {
       var s = settingsToObject_(clean.rows);
       if (s.batchName && s.batchName !== meta.name) {
@@ -473,15 +558,22 @@ function apiDevSaveTable(token, batchId, name, rows) {
   return apiDevGetAll(token, meta.id);
 }
 
+function devStageTables_(stageKey) {
+  var t = STAGE_TABLES[stageKey || 'stage1'];
+  if (!t) throw new Error('Stage ini belum punya laporan.');
+  return t;
+}
+
 /** Inserts (no id) or updates (id) one report row. Dev edits skip guest validation on purpose. */
-function apiDevSaveReport(token, batchId, row) {
+function apiDevSaveReport(token, batchId, row, stageKey) {
   requireDev_(token);
   var meta = resolveBatch_(batchId);
+  var t = devStageTables_(stageKey);
   withLock_(function () {
     var ss = SpreadsheetApp.openById(meta.spreadsheetId);
-    var fields = readTable_(ss, 'FormFields').rows;
+    var fields = readTable_(ss, t.fields).rows;
     var students = readTable_(ss, 'Students').rows;
-    var sh = getOrCreateSheet_(ss, 'Reports');
+    var sh = getOrCreateSheet_(ss, t.reports);
     var headers = ensureHeaders_(sh, reportHeaders_(fields));
     var st = findStudent_(students, row.student);
     if (st) row.studentName = st.name;
@@ -510,13 +602,14 @@ function apiDevSaveReport(token, batchId, row) {
 }
 
 /** Deletes one report (id) or several (array of ids). */
-function apiDevDeleteReport(token, batchId, ids) {
+function apiDevDeleteReport(token, batchId, ids, stageKey) {
   requireDev_(token);
   var meta = resolveBatch_(batchId);
+  var t = devStageTables_(stageKey);
   var wanted = {};
   (Array.isArray(ids) ? ids : [ids]).forEach(function (id) { wanted[String(id)] = true; });
   withLock_(function () {
-    var sh = getOrCreateSheet_(SpreadsheetApp.openById(meta.spreadsheetId), 'Reports');
+    var sh = getOrCreateSheet_(SpreadsheetApp.openById(meta.spreadsheetId), t.reports);
     var values = sh.getDataRange().getValues();
     var idCol = values[0].map(String).indexOf('id');
     var found = 0;

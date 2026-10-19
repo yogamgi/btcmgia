@@ -9,7 +9,7 @@
 <body>
   <header class="top">
     <div>
-      <h1>Stage 1 - Akademi BTC · Dev</h1>
+      <h1>BTC - Boarding Technician Camp · Dev</h1>
       <div class="sub" id="subtitle">Panel developer</div>
     </div>
     <div class="row hidden" id="topActions">
@@ -33,13 +33,10 @@
     <section id="appView" class="hidden">
       <nav class="tabs" id="tabs">
         <button data-tab="batches" class="active">Batch</button>
-        <button data-tab="Settings">Pengaturan</button>
-        <button data-tab="Students">Santri</button>
-        <button data-tab="Categories">Kategori &amp; Target</button>
-        <button data-tab="FormFields">Form</button>
-        <button data-tab="Milestones">Milestone</button>
-        <button data-tab="Reports">Laporan</button>
-        <button data-tab="preview">Dashboard</button>
+        <button data-tab="general">Umum</button>
+        <button data-tab="stage0" data-stage-tab="stage0">Stage 0 - Orientasi</button>
+        <button data-tab="stage1" data-stage-tab="stage1">Stage 1 - Akademi</button>
+        <button data-tab="stage2" data-stage-tab="stage2">Stage 2 - Asistensi</button>
       </nav>
 
       <div data-panel="batches">
@@ -53,7 +50,7 @@
           <label class="field"><span class="lbl">Nama batch</span><input id="nbName" placeholder="Batch 5"></label>
           <label class="field"><span class="lbl">Hari pertama Stage 1</span><input id="nbStart" type="date"></label>
           <label class="field"><span class="lbl">Salin pengaturan dari</span>
-            <span class="help">Form, kategori, target, milestone, dan pengaturan disalin. Laporan tidak pernah disalin.</span>
+            <span class="help">Form semua stage, kategori, target, milestone, dan pengaturan disalin. Laporan tidak pernah disalin. Status kunci stage kembali ke awal (Stage 0 terbuka, lainnya terkunci).</span>
             <select id="nbSource"></select></label>
           <label class="choice"><input type="checkbox" id="nbStudents"> Salin juga daftar santri</label>
           <div class="row" style="margin-top:12px"><button class="btn primary" id="nbCreate">Buat batch</button></div>
@@ -65,42 +62,68 @@
         </div>
       </div>
 
-      <div data-panel="Settings" class="hidden">
+      <div data-panel="general" class="hidden">
+        <div class="card"><h2>Santri (semua stage)</h2>
+          <p class="muted">Daftar ini dipakai form dan dashboard semua stage. Kolom target hanya untuk Stage 1; kosongkan untuk memakai target default kategori.
+            Santri nonaktif tidak muncul di form, tapi laporannya tetap dihitung.</p>
+          <div id="ed_Students"></div></div>
         <div class="card"><h2>Banner halaman Guest</h2>
-          <p class="muted">Gambar ini tampil paling atas di halaman Guest (form dan dashboard) untuk batch ini. Disarankan gambar lebar, misalnya 1600 × 400 px.</p>
+          <p class="muted">Gambar ini tampil paling atas di halaman Guest (pilihan stage, form, dan dashboard) untuk batch ini. Disarankan gambar lebar, misalnya 1600 × 400 px.</p>
           <div id="bannerPreview" class="banner" style="margin-bottom:12px"></div>
           <div class="row"><input type="file" id="bannerFile" accept="image/*" style="max-width:320px">
             <button class="btn primary" id="bannerUpload">Upload banner</button>
             <button class="btn danger" id="bannerRemove">Hapus banner</button></div>
         </div>
-        <div class="card"><h2>Pengaturan batch</h2>
-        <p class="muted">Judul form, deskripsi, tanggal mulai, buka/tutup form, judul dan pengumuman dashboard. Tambah baris baru untuk catatan sendiri.</p>
-        <div id="ed_Settings"></div></div>
       </div>
-      <div data-panel="Students" class="hidden"><div class="card"><h2>Santri</h2>
-        <p class="muted">Kosongkan kolom target untuk memakai target default kategori. Santri nonaktif tidak muncul di form, tapi laporannya tetap dihitung.</p>
-        <div id="ed_Students"></div></div></div>
-      <div data-panel="Categories" class="hidden"><div class="card"><h2>Kategori perangkat &amp; target default</h2>
-        <p class="muted">Kategori menjadi pilihan "Jenis Perangkat" di form dan kolom Done/Target/Achievement di dashboard.</p>
-        <div id="ed_Categories"></div></div></div>
-      <div data-panel="FormFields" class="hidden"><div class="card"><h2>Pertanyaan form</h2>
-        <p class="muted">Kolom "section" mengelompokkan pertanyaan. Pilihan untuk select/radio/checkbox ditulis satu per baris.
-          Pertanyaan tanggal, nama santri, dan jenis perangkat dipakai dashboard sehingga tidak bisa dihapus (label dan urutannya bisa diubah).
-          Jumlah unit tidak ditanyakan: setiap laporan dihitung 1 unit di dashboard.
-          Menghapus pertanyaan tidak menghapus jawaban lama di spreadsheet.</p>
-        <div id="ed_FormFields"></div></div></div>
-      <div data-panel="Milestones" class="hidden"><div class="card" style="max-width:520px"><h2>Milestone target kumulatif</h2>
-        <p class="muted">Jumlah unit kumulatif yang diharapkan pada hari ke-N. Dipakai untuk status "Sesuai target".</p>
-        <div id="ed_Milestones"></div></div></div>
-      <div data-panel="Reports" class="hidden"><div class="card"><h2>Laporan</h2>
-        <div class="row" style="margin-bottom:12px">
-          <input id="repFilter" placeholder="Cari nama / tanggal…" style="max-width:280px">
-          <span class="spacer"></span>
-          <button class="btn danger" id="repBulkDel" disabled>Hapus terpilih</button>
-          <button class="btn" id="repAdd">+ Tambah laporan</button>
-        </div>
-        <div class="table-wrap" id="reportTable"></div></div></div>
-      <div data-panel="preview" class="hidden"><div id="dashboard"><div class="loading">Memuat…</div></div></div>
+
+      <div data-panel="stage0" class="hidden">
+        <div class="card" data-stage-card="stage0"></div>
+        <nav class="tabs" data-group="stage0">
+          <button data-tab="s0form" class="active">Form</button>
+          <button data-tab="s0rep">Laporan</button>
+          <button data-tab="s0dash">Dashboard</button>
+        </nav>
+        <div data-group="stage0" data-panel="s0form"><div class="card"><h2>Pertanyaan form Stage 0</h2>
+          <p class="muted">Pilihan Lokasi Cabang dan Aktivitas ditulis satu per baris di kolom "Pilihan". Pertanyaan nama santri tidak bisa dihapus.
+            Menghapus pertanyaan tidak menghapus jawaban lama di spreadsheet.</p>
+          <div id="ed_S0_FormFields"></div></div></div>
+        <div data-group="stage0" data-panel="s0rep" class="hidden" data-reports="stage0"></div>
+        <div data-group="stage0" data-panel="s0dash" class="hidden"><div id="dashboard_stage0"></div></div>
+      </div>
+
+      <div data-panel="stage1" class="hidden">
+        <div class="card" data-stage-card="stage1"></div>
+        <nav class="tabs" data-group="stage1">
+          <button data-tab="Settings" class="active">Pengaturan</button>
+          <button data-tab="Categories">Kategori &amp; Target</button>
+          <button data-tab="FormFields">Form</button>
+          <button data-tab="Milestones">Milestone</button>
+          <button data-tab="s1rep">Laporan</button>
+          <button data-tab="s1dash">Dashboard</button>
+        </nav>
+        <div data-group="stage1" data-panel="Settings"><div class="card"><h2>Pengaturan Stage 1</h2>
+          <p class="muted">Judul form, deskripsi, tanggal mulai, buka/tutup form, judul dan pengumuman dashboard. Tambah baris baru untuk catatan sendiri.</p>
+          <div id="ed_Settings"></div></div></div>
+        <div data-group="stage1" data-panel="Categories" class="hidden"><div class="card"><h2>Kategori perangkat &amp; target default</h2>
+          <p class="muted">Kategori menjadi pilihan "Jenis Perangkat" di form dan kolom Done/Target/Achievement di dashboard.</p>
+          <div id="ed_Categories"></div></div></div>
+        <div data-group="stage1" data-panel="FormFields" class="hidden"><div class="card"><h2>Pertanyaan form Stage 1</h2>
+          <p class="muted">Kolom "section" mengelompokkan pertanyaan. Pilihan untuk select/radio/checkbox ditulis satu per baris.
+            Pertanyaan tanggal, nama santri, dan jenis perangkat dipakai dashboard sehingga tidak bisa dihapus (label dan urutannya bisa diubah).
+            Jumlah unit tidak ditanyakan: setiap laporan dihitung 1 unit di dashboard.
+            Menghapus pertanyaan tidak menghapus jawaban lama di spreadsheet.</p>
+          <div id="ed_FormFields"></div></div></div>
+        <div data-group="stage1" data-panel="Milestones" class="hidden"><div class="card" style="max-width:520px"><h2>Milestone target kumulatif</h2>
+          <p class="muted">Jumlah unit kumulatif yang diharapkan pada hari ke-N. Dipakai untuk status "Sesuai target".</p>
+          <div id="ed_Milestones"></div></div></div>
+        <div data-group="stage1" data-panel="s1rep" class="hidden" data-reports="stage1"></div>
+        <div data-group="stage1" data-panel="s1dash" class="hidden"><div id="dashboard_stage1"></div></div>
+      </div>
+
+      <div data-panel="stage2" class="hidden">
+        <div class="card" data-stage-card="stage2"></div>
+        <div class="notice info">Form dan dashboard Stage 2 belum dibuat. Selama terkunci, Guest melihat stage ini sebagai "Terkunci"; jika dibuka, Guest melihat "Segera hadir".</div>
+      </div>
     </section>
   </main>
   <div id="toast"></div>
@@ -108,7 +131,8 @@
   <?!= include('Shared'); ?>
   <script>
     var INITIAL_BATCH = '<?= initialBatch ?>';
-    var token = null, all = null, dashState = { selected: '' }, currentTab = 'batches';
+    var token = null, all = null, dashState = { stage0: { selected: '' }, stage1: { selected: '' } };
+    var currentTab = 'batches', subTab = { stage0: 's0form', stage1: 'Settings' };
     try { token = sessionStorage.getItem('btcDevToken'); } catch (e) {}
 
     function devCall(fn) {
@@ -147,10 +171,22 @@
 
     setTabs(document.getElementById('tabs'), function (tab) {
       currentTab = tab;
-      if (tab === 'preview') loadPreview();
+      refreshPreview();
+    });
+    document.querySelectorAll('nav.tabs[data-group]').forEach(function (nav) {
+      var stage = nav.getAttribute('data-group');
+      setTabs(nav, function (tab) { subTab[stage] = tab; refreshPreview(); });
     });
 
-    document.getElementById('batchSelect').addEventListener('change', function (e) { dashState.selected = ''; load(e.target.value); });
+    /** Reloads the dashboard preview if it is the panel on screen. */
+    function refreshPreview() {
+      if (currentTab === 'stage0' && subTab.stage0 === 's0dash') loadPreview('stage0');
+      if (currentTab === 'stage1' && subTab.stage1 === 's1dash') loadPreview('stage1');
+    }
+
+    document.getElementById('batchSelect').addEventListener('change', function (e) {
+      dashState.stage0.selected = ''; dashState.stage1.selected = ''; load(e.target.value);
+    });
 
     function load(batchId) {
       return devCall('apiDevGetAll', batchId || '').then(apply).catch(function (e) { toast(e.message); });
@@ -169,9 +205,43 @@
       document.getElementById('lnkGuest').href = data.urls.app + '?batch=' + encodeURIComponent(b.id);
       renderBatches();
       renderBanner();
+      renderStageCards();
       renderEditors();
-      renderReports();
-      if (currentTab === 'preview') loadPreview();
+      reportPanels.forEach(function (rp) { rp.render(); });
+      refreshPreview();
+    }
+
+    // ------------------------------------------------------------ stages (name, description, lock)
+    function stageRows() { return all.tables.Stages.rows; }
+
+    function renderStageCards() {
+      stageRows().forEach(function (st) {
+        var tab = document.querySelector('[data-stage-tab="' + st.key + '"]');
+        if (tab) tab.textContent = (st.status === 'open' ? '' : '🔒 ') + st.name;
+        var el = document.querySelector('[data-stage-card="' + st.key + '"]');
+        if (!el) return;
+        el.innerHTML = '<h2>' + esc(st.name) + ' ' + (st.status === 'open' ? '<span class="pill ok">Terbuka untuk santri</span>' : '<span class="pill none">🔒 Terkunci</span>') + '</h2>' +
+          '<p class="muted">Selama terkunci, santri tidak bisa membuka form dan dashboard stage ini. Dev tetap bisa mengatur dan melihat pratinjau di sini.</p>' +
+          '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">' +
+          '<label class="field"><span class="lbl">Nama stage</span><input data-st="name" value="' + esc(st.name) + '"></label>' +
+          '<label class="field"><span class="lbl">Keterangan (tampil di kartu stage)</span><input data-st="description" value="' + esc(st.description) + '"></label></div>' +
+          '<div class="row"><button class="btn" data-st-save>Simpan nama &amp; keterangan</button><span class="spacer"></span>' +
+          (st.status === 'open' ? '<button class="btn danger" data-st-status="locked">Kunci stage</button>'
+            : '<button class="btn primary" data-st-status="open">Buka untuk santri</button>') + '</div>';
+        el.querySelector('[data-st-save]').onclick = function () {
+          saveStage(st.key, { name: el.querySelector('[data-st="name"]').value, description: el.querySelector('[data-st="description"]').value }, 'Stage tersimpan.');
+        };
+        el.querySelector('[data-st-status]').onclick = function () {
+          var to = this.getAttribute('data-st-status');
+          if (!confirm(to === 'open' ? 'Buka ' + st.name + ' untuk santri?' : 'Kunci ' + st.name + '? Santri tidak bisa membukanya sampai dibuka lagi.')) return;
+          saveStage(st.key, { status: to }, to === 'open' ? st.name + ' dibuka.' : st.name + ' dikunci.');
+        };
+      });
+    }
+
+    function saveStage(key, patch, done) {
+      var rows = stageRows().map(function (r) { return r.key === key ? Object.assign({}, r, patch) : r; });
+      devCall('apiDevSaveTable', all.batch.id, 'Stages', rows).then(function (d) { apply(d); toast(done); }).catch(function (e) { toast(e.message); });
     }
 
     // ------------------------------------------------------------ batches
@@ -262,9 +332,11 @@
     // ------------------------------------------------------------ table editors
     var FIELD_TYPES = [['text', 'Jawaban singkat'], ['textarea', 'Paragraf'], ['number', 'Angka'], ['date', 'Tanggal'], ['select', 'Dropdown'],
       ['radio', 'Pilihan ganda'], ['checkbox', 'Kotak centang'], ['student', 'Nama santri'], ['category', 'Kategori perangkat'], ['file', 'Upload file']];
-    // Form questions the dashboard reads. Their key and type are fixed; student/category also stay active.
-    var SYSTEM_KEYS = ['date', 'student', 'category'];
-    var ALWAYS_ACTIVE = ['student', 'category'];
+    // Form questions the dashboards read. Their key and type are fixed; some also stay active.
+    var SYSTEM_KEYS = { FormFields: ['date', 'student', 'category'], S0_FormFields: ['student'] };
+    var ALWAYS_ACTIVE = { FormFields: ['student', 'category'], S0_FormFields: ['student'] };
+    function isFormTable(name) { return !!SYSTEM_KEYS[name]; }
+    function isSystemField(name, key) { return isFormTable(name) && SYSTEM_KEYS[name].indexOf(key) >= 0; }
 
     function columnsFor(name) {
       if (name === 'Settings') return [{ key: 'key', label: 'Key' }, { key: 'value', label: 'Nilai', type: 'textarea' }, { key: 'description', label: 'Keterangan' }];
@@ -278,8 +350,9 @@
         cols.push({ key: 'notes', label: 'Catatan' }, { key: 'id', label: 'ID', title: 'Dipakai laporan untuk mengenali santri. Kosongkan untuk dibuat otomatis.' });
         return cols;
       }
-      if (name === 'FormFields') return [{ key: 'label', label: 'Pertanyaan' }, { key: 'key', label: 'Key' },
-        { key: 'type', label: 'Tipe', type: 'select', options: FIELD_TYPES }, { key: 'options', label: 'Pilihan (1 per baris)', type: 'textarea' },
+      if (isFormTable(name)) return [{ key: 'label', label: 'Pertanyaan' }, { key: 'key', label: 'Key' },
+        { key: 'type', label: 'Tipe', type: 'select',
+          options: name === 'FormFields' ? FIELD_TYPES : FIELD_TYPES.filter(function (t) { return t[0] !== 'category'; }) }, { key: 'options', label: 'Pilihan (1 per baris)', type: 'textarea' },
         { key: 'required', label: 'Wajib', type: 'bool' }, { key: 'section', label: 'Section' }, { key: 'help', label: 'Petunjuk' },
         { key: 'active', label: 'Aktif', type: 'bool' }];
       if (name === 'Milestones') return [{ key: 'day', label: 'Hari ke', type: 'number' }, { key: 'units', label: 'Jml unit kumulatif', type: 'number' }];
@@ -287,12 +360,12 @@
 
     function newRowFor(name) {
       if (name === 'Students' || name === 'Categories') return { active: true };
-      if (name === 'FormFields') return { type: 'text', active: true, required: false };
+      if (isFormTable(name)) return { type: 'text', active: true, required: false };
       return {};
     }
 
     function renderEditors() {
-      ['Settings', 'Students', 'Categories', 'FormFields', 'Milestones'].forEach(function (name) {
+      ['Settings', 'Students', 'Categories', 'FormFields', 'Milestones', 'S0_FormFields'].forEach(function (name) {
         tableEditor(document.getElementById('ed_' + name), name, columnsFor(name), all.tables[name].rows);
       });
     }
@@ -301,9 +374,9 @@
 
     /** Cells that cannot change for a row, with the reason shown on hover. */
     function lockReason(name, col, row) {
-      if (name !== 'FormFields' || SYSTEM_KEYS.indexOf(row.key) < 0) return '';
+      if (!isSystemField(name, row.key)) return '';
       if (col.key === 'key' || col.key === 'type') return 'Dipakai dashboard, tidak bisa diubah';
-      if (col.key === 'active' && ALWAYS_ACTIVE.indexOf(row.key) >= 0) return 'Dashboard butuh pertanyaan ini, jadi selalu aktif';
+      if (col.key === 'active' && ALWAYS_ACTIVE[name].indexOf(row.key) >= 0) return 'Dashboard butuh pertanyaan ini, jadi selalu aktif';
       return '';
     }
 
@@ -344,7 +417,7 @@
      */
     function tableEditor(el, name, cols, rows) {
       rows = rows.map(function (r) { return Object.assign({}, r); });
-      if (name === 'FormFields') rows.sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
+      if (isFormTable(name)) rows.sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
       var selected = [];   // parallel to rows
       var sort = { key: '', dir: 1 };
       var dirty = false;
@@ -373,7 +446,7 @@
             return '<th class="sortable" data-sort="' + esc(c.key) + '" title="Klik untuk mengurutkan">' + esc(c.label) + mark + '</th>';
           }).join('') + '<th></th></tr></thead><tbody>';
         rows.forEach(function (r, i) {
-          var sys = name === 'FormFields' && SYSTEM_KEYS.indexOf(r.key) >= 0;
+          var sys = isSystemField(name, r.key);
           html += '<tr data-i="' + i + '"' + (selected[i] ? ' class="selected"' : '') + '>' +
             '<td class="sel"><input type="checkbox" data-sel' + (selected[i] ? ' checked' : '') + '></td><td class="muted">' + (i + 1) + '</td>' +
             cols.map(function (c) { return '<td>' + cellInput(name, c, r) + '</td>'; }).join('') +
@@ -483,7 +556,7 @@
         if (!b) return;
         collect();
         var m = b.getAttribute('data-m'), tr = b.closest('tr'), i = tr ? Number(tr.getAttribute('data-i')) : -1;
-        var keep = function (r, j) { return !selected[j] || (name === 'FormFields' && SYSTEM_KEYS.indexOf(r.key) >= 0); };
+        var keep = function (r, j) { return !selected[j] || isSystemField(name, r.key); };
         if (m === 'add') { rows.push(newRowFor(name)); selected.push(false); dirty = true; }
         if (m === 'addmany') { el.querySelector('[data-panel-many]').classList.remove('hidden'); el.querySelector('[data-many]').focus(); return; }
         if (m === 'addmanyclose') { el.querySelector('[data-panel-many]').classList.add('hidden'); return; }
@@ -505,7 +578,7 @@
           var copies = rows.filter(function (r, j) { return selected[j]; }).map(function (r) {
             var c = Object.assign({}, r);
             delete c.id;
-            if (name === 'FormFields' || name === 'Categories') { c.key = ''; c.label = (c.label || '') + ' (salinan)'; }
+            if (isFormTable(name) || name === 'Categories') { c.key = ''; c.label = (c.label || '') + ' (salinan)'; }
             if (name === 'Students') c.name = (c.name || '') + ' (salinan)';
             return c;
           });
@@ -538,131 +611,146 @@
       draw();
     }
 
-    // ------------------------------------------------------------ reports
-    var editingReport = null;
-    var selectedReports = {};
-    function reportColumns() {
-      var fields = all.tables.FormFields.rows.slice().sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
-      var keys = fields.map(function (f) { return f.key; });
-      var labels = {};
-      fields.forEach(function (f) { labels[f.key] = f.label; });
-      // Columns that exist in the sheet but are no longer in the form (old answers) still show at the end.
-      all.tables.Reports.headers.forEach(function (h) {
-        if (['id', 'submittedAt', 'updatedAt', 'studentName'].indexOf(h) < 0 && keys.indexOf(h) < 0) keys.push(h);
-      });
-      return { keys: keys, labels: labels, fields: fields };
-    }
+    // ------------------------------------------------------------ reports (one panel per stage)
+    /** Report list for one stage: filter, inline edit, add, single and bulk delete. */
+    function reportsPanel(stageKey, fieldsTable, reportsTable) {
+      var root = document.querySelector('[data-reports="' + stageKey + '"]');
+      root.innerHTML = '<div class="card"><h2>Laporan</h2><div class="row" style="margin-bottom:12px">' +
+        '<input data-filter placeholder="Cari nama / tanggal…" style="max-width:280px"><span class="spacer"></span>' +
+        '<button class="btn danger" data-bulkdel disabled>Hapus terpilih</button><button class="btn" data-add>+ Tambah laporan</button></div>' +
+        '<div class="table-wrap" data-table></div></div>';
+      var filter = root.querySelector('[data-filter]'), bulkDel = root.querySelector('[data-bulkdel]'), table = root.querySelector('[data-table]');
+      var editing = null, selectedIds = {};
 
-    function reportCellEditor(key, value, fields) {
-      var f = fields.filter(function (x) { return x.key === key; })[0];
-      var type = f ? f.type : 'text';
-      if (type === 'student') {
-        return '<select data-k="' + esc(key) + '"><option value=""></option>' + all.tables.Students.rows.map(function (s) {
-          return '<option value="' + esc(s.id) + '"' + (String(s.id) === String(value) ? ' selected' : '') + '>' + esc(s.name) + '</option>';
-        }).join('') + '</select>';
-      }
-      if (type === 'category') {
-        return '<select data-k="' + esc(key) + '"><option value=""></option>' + all.tables.Categories.rows.map(function (c) {
-          return '<option value="' + esc(c.key) + '"' + (String(c.key) === String(value) ? ' selected' : '') + '>' + esc(c.label) + '</option>';
-        }).join('') + '</select>';
-      }
-      var t = type === 'number' ? 'number' : type === 'date' ? 'date' : 'text';
-      return '<input type="' + t + '" data-k="' + esc(key) + '" value="' + esc(value) + '">';
-    }
-
-    function displayValue(key, value, fields) {
-      var f = fields.filter(function (x) { return x.key === key; })[0];
-      if (f && f.type === 'student') { var s = all.tables.Students.rows.filter(function (x) { return String(x.id) === String(value); })[0]; return esc(s ? s.name : value); }
-      if (f && f.type === 'category') { var c = all.tables.Categories.rows.filter(function (x) { return String(x.key) === String(value); })[0]; return esc(c ? c.label : value); }
-      if (/^https:\/\//.test(String(value))) return '<a href="' + esc(value) + '" target="_blank">Buka</a>';
-      return esc(value);
-    }
-
-    function renderReports() {
-      var cols = reportColumns();
-      var q = document.getElementById('repFilter').value.trim().toLowerCase();
-      var rows = all.tables.Reports.rows.slice().reverse();
-      if (editingReport === 'new') rows.unshift({ id: '' });
-      if (q) rows = rows.filter(function (r) { return !r.id || JSON.stringify(r).toLowerCase().indexOf(q) >= 0; });
-      var html = '<table class="editor"><thead><tr><th class="sel"><input type="checkbox" id="repSelAll" title="Pilih semua yang tampil"></th><th>Dikirim</th>' + cols.keys.map(function (k) { return '<th>' + esc(cols.labels[k] || k) + '</th>'; }).join('') +
-        '<th></th></tr></thead><tbody>';
-      rows.slice(0, 300).forEach(function (r) {
-        var editing = (editingReport === 'new' && !r.id) || (r.id && editingReport === r.id);
-        html += '<tr data-id="' + esc(r.id) + '"' + (selectedReports[r.id] ? ' class="selected"' : '') + '><td class="sel">' +
-          (r.id ? '<input type="checkbox" data-rsel' + (selectedReports[r.id] ? ' checked' : '') + '>' : '') + '</td><td class="muted">' + esc(r.submittedAt || 'baru') + '</td>' + cols.keys.map(function (k) {
-          return '<td>' + (editing ? reportCellEditor(k, r[k] == null ? '' : r[k], cols.fields) : displayValue(k, r[k] == null ? '' : r[k], cols.fields)) + '</td>';
-        }).join('') + '<td class="actions">' + (editing
-          ? '<button class="btn sm primary" data-r="save">Simpan</button><button class="btn sm" data-r="cancel">Batal</button>'
-          : '<button class="btn sm" data-r="edit">Edit</button><button class="btn sm danger" data-r="del">Hapus</button>') + '</td></tr>';
-      });
-      if (!rows.length) html += '<tr><td colspan="' + (cols.keys.length + 3) + '" class="muted">Belum ada laporan.</td></tr>';
-      html += '</tbody></table>';
-      if (rows.length > 300) html += '<p class="muted">Menampilkan 300 laporan terbaru. Gunakan pencarian atau buka spreadsheet untuk data lengkap.</p>';
-      document.getElementById('reportTable').innerHTML = html;
-      updateReportBulk();
-    }
-
-    function updateReportBulk() {
-      var n = Object.keys(selectedReports).filter(function (k) { return selectedReports[k]; }).length;
-      var b = document.getElementById('repBulkDel');
-      b.disabled = !n;
-      b.textContent = n ? 'Hapus ' + n + ' terpilih' : 'Hapus terpilih';
-    }
-
-    document.getElementById('reportTable').addEventListener('change', function (e) {
-      var t = e.target;
-      if (t.id === 'repSelAll') {
-        document.querySelectorAll('#reportTable [data-rsel]').forEach(function (c) {
-          c.checked = t.checked;
-          selectedReports[c.closest('tr').getAttribute('data-id')] = t.checked;
-          c.closest('tr').classList.toggle('selected', t.checked);
+      function columns() {
+        var fields = all.tables[fieldsTable].rows.slice().sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); });
+        var keys = fields.map(function (f) { return f.key; });
+        var labels = {};
+        fields.forEach(function (f) { labels[f.key] = f.label; });
+        // Columns that exist in the sheet but are no longer in the form (old answers) still show at the end.
+        all.tables[reportsTable].headers.forEach(function (h) {
+          if (['id', 'submittedAt', 'updatedAt', 'studentName'].indexOf(h) < 0 && keys.indexOf(h) < 0) keys.push(h);
         });
-      } else if (t.hasAttribute('data-rsel')) {
-        selectedReports[t.closest('tr').getAttribute('data-id')] = t.checked;
-        t.closest('tr').classList.toggle('selected', t.checked);
-      } else return;
-      updateReportBulk();
-    });
-
-    document.getElementById('repBulkDel').addEventListener('click', function () {
-      var ids = Object.keys(selectedReports).filter(function (k) { return selectedReports[k]; });
-      if (!ids.length || !confirm('Hapus ' + ids.length + ' laporan terpilih? Tidak bisa dibatalkan.')) return;
-      var btn = this;
-      btn.disabled = true;
-      devCall('apiDevDeleteReport', all.batch.id, ids).then(function (d) { selectedReports = {}; apply(d); toast(ids.length + ' laporan dihapus.'); })
-        .catch(function (err) { toast(err.message); btn.disabled = false; });
-    });
-
-    document.getElementById('repFilter').addEventListener('input', renderReports);
-    document.getElementById('repAdd').addEventListener('click', function () { editingReport = 'new'; renderReports(); });
-    document.getElementById('reportTable').addEventListener('click', function (e) {
-      var b = e.target.closest('[data-r]');
-      if (!b) return;
-      var tr = b.closest('tr'), id = tr.getAttribute('data-id'), act = b.getAttribute('data-r');
-      if (act === 'edit') { editingReport = id; return renderReports(); }
-      if (act === 'cancel') { editingReport = null; return renderReports(); }
-      if (act === 'del') {
-        if (!confirm('Hapus laporan ini? Tidak bisa dibatalkan.')) return;
-        return devCall('apiDevDeleteReport', all.batch.id, id).then(function (d) { apply(d); toast('Laporan dihapus.'); }).catch(function (err) { toast(err.message); });
+        return { keys: keys, labels: labels, fields: fields };
       }
-      if (act === 'save') {
-        var row = { id: id };
-        tr.querySelectorAll('[data-k]').forEach(function (inp) { row[inp.getAttribute('data-k')] = inp.value; });
-        b.disabled = true;
-        devCall('apiDevSaveReport', all.batch.id, row).then(function (d) { editingReport = null; apply(d); toast('Laporan tersimpan.'); })
-          .catch(function (err) { toast(err.message); b.disabled = false; });
-      }
-    });
 
-    // ------------------------------------------------------------ dashboard preview
-    function loadPreview() {
-      var el = document.getElementById('dashboard');
+      function cellEditor(key, value, fields) {
+        var f = fields.filter(function (x) { return x.key === key; })[0];
+        var type = f ? f.type : 'text';
+        if (type === 'student') {
+          return '<select data-k="' + esc(key) + '"><option value=""></option>' + all.tables.Students.rows.map(function (s) {
+            return '<option value="' + esc(s.id) + '"' + (String(s.id) === String(value) ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+          }).join('') + '</select>';
+        }
+        if (type === 'category') {
+          return '<select data-k="' + esc(key) + '"><option value=""></option>' + all.tables.Categories.rows.map(function (c) {
+            return '<option value="' + esc(c.key) + '"' + (String(c.key) === String(value) ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+          }).join('') + '</select>';
+        }
+        var t = type === 'number' ? 'number' : type === 'date' ? 'date' : 'text';
+        return '<input type="' + t + '" data-k="' + esc(key) + '" value="' + esc(value) + '">';
+      }
+
+      function display(key, value, fields) {
+        var f = fields.filter(function (x) { return x.key === key; })[0];
+        if (f && f.type === 'student') { var s = all.tables.Students.rows.filter(function (x) { return String(x.id) === String(value); })[0]; return esc(s ? s.name : value); }
+        if (f && f.type === 'category') { var c = all.tables.Categories.rows.filter(function (x) { return String(x.key) === String(value); })[0]; return esc(c ? c.label : value); }
+        if (/^https:\/\//.test(String(value))) return '<a href="' + esc(value) + '" target="_blank">Buka</a>';
+        return esc(value);
+      }
+
+      function render() {
+        var cols = columns();
+        var q = filter.value.trim().toLowerCase();
+        var rows = all.tables[reportsTable].rows.slice().reverse();
+        if (editing === 'new') rows.unshift({ id: '' });
+        if (q) rows = rows.filter(function (r) { return !r.id || JSON.stringify(r).toLowerCase().indexOf(q) >= 0; });
+        var html = '<table class="editor"><thead><tr><th class="sel"><input type="checkbox" data-selall title="Pilih semua yang tampil"></th><th>Dikirim</th>' +
+          cols.keys.map(function (k) { return '<th>' + esc(cols.labels[k] || k) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>';
+        rows.slice(0, 300).forEach(function (r) {
+          var isEditing = (editing === 'new' && !r.id) || (r.id && editing === r.id);
+          html += '<tr data-id="' + esc(r.id) + '"' + (selectedIds[r.id] ? ' class="selected"' : '') + '><td class="sel">' +
+            (r.id ? '<input type="checkbox" data-rsel' + (selectedIds[r.id] ? ' checked' : '') + '>' : '') + '</td><td class="muted">' + esc(r.submittedAt || 'baru') + '</td>' +
+            cols.keys.map(function (k) {
+              var v = r[k] == null ? '' : r[k];
+              return '<td>' + (isEditing ? cellEditor(k, v, cols.fields) : display(k, v, cols.fields)) + '</td>';
+            }).join('') + '<td class="actions">' + (isEditing
+            ? '<button class="btn sm primary" data-r="save">Simpan</button><button class="btn sm" data-r="cancel">Batal</button>'
+            : '<button class="btn sm" data-r="edit">Edit</button><button class="btn sm danger" data-r="del">Hapus</button>') + '</td></tr>';
+        });
+        if (!rows.length) html += '<tr><td colspan="' + (cols.keys.length + 3) + '" class="muted">Belum ada laporan.</td></tr>';
+        html += '</tbody></table>';
+        if (rows.length > 300) html += '<p class="muted">Menampilkan 300 laporan terbaru. Gunakan pencarian atau buka spreadsheet untuk data lengkap.</p>';
+        table.innerHTML = html;
+        updateBulk();
+      }
+
+      function updateBulk() {
+        var n = Object.keys(selectedIds).filter(function (k) { return selectedIds[k]; }).length;
+        bulkDel.disabled = !n;
+        bulkDel.textContent = n ? 'Hapus ' + n + ' terpilih' : 'Hapus terpilih';
+      }
+
+      table.addEventListener('change', function (e) {
+        var t = e.target;
+        if (t.hasAttribute('data-selall')) {
+          table.querySelectorAll('[data-rsel]').forEach(function (c) {
+            c.checked = t.checked;
+            selectedIds[c.closest('tr').getAttribute('data-id')] = t.checked;
+            c.closest('tr').classList.toggle('selected', t.checked);
+          });
+        } else if (t.hasAttribute('data-rsel')) {
+          selectedIds[t.closest('tr').getAttribute('data-id')] = t.checked;
+          t.closest('tr').classList.toggle('selected', t.checked);
+        } else return;
+        updateBulk();
+      });
+
+      bulkDel.addEventListener('click', function () {
+        var ids = Object.keys(selectedIds).filter(function (k) { return selectedIds[k]; });
+        if (!ids.length || !confirm('Hapus ' + ids.length + ' laporan terpilih? Tidak bisa dibatalkan.')) return;
+        bulkDel.disabled = true;
+        devCall('apiDevDeleteReport', all.batch.id, ids, stageKey).then(function (d) { selectedIds = {}; apply(d); toast(ids.length + ' laporan dihapus.'); })
+          .catch(function (err) { toast(err.message); bulkDel.disabled = false; });
+      });
+
+      filter.addEventListener('input', render);
+      root.querySelector('[data-add]').addEventListener('click', function () { editing = 'new'; render(); });
+      table.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-r]');
+        if (!b) return;
+        var tr = b.closest('tr'), id = tr.getAttribute('data-id'), act = b.getAttribute('data-r');
+        if (act === 'edit') { editing = id; return render(); }
+        if (act === 'cancel') { editing = null; return render(); }
+        if (act === 'del') {
+          if (!confirm('Hapus laporan ini? Tidak bisa dibatalkan.')) return;
+          return devCall('apiDevDeleteReport', all.batch.id, id, stageKey).then(function (d) { apply(d); toast('Laporan dihapus.'); }).catch(function (err) { toast(err.message); });
+        }
+        if (act === 'save') {
+          var row = { id: id };
+          tr.querySelectorAll('[data-k]').forEach(function (inp) { row[inp.getAttribute('data-k')] = inp.value; });
+          b.disabled = true;
+          devCall('apiDevSaveReport', all.batch.id, row, stageKey).then(function (d) { editing = null; apply(d); toast('Laporan tersimpan.'); })
+            .catch(function (err) { toast(err.message); b.disabled = false; });
+        }
+      });
+
+      return { render: render };
+    }
+
+    var reportPanels = [reportsPanel('stage0', 'S0_FormFields', 'S0_Reports'), reportsPanel('stage1', 'FormFields', 'Reports')];
+
+    // ------------------------------------------------------------ dashboard preview (also for locked stages)
+    function loadPreview(stageKey) {
+      var el = document.getElementById('dashboard_' + stageKey);
       el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
-      call('apiGetDashboard', all.batch.id).then(function (d) {
-        var extra = d.unmatchedReports ? '<div class="notice err">' + d.unmatchedReports +
-          ' laporan tidak terhitung karena nama santri atau kategorinya tidak dikenali. Periksa tab Laporan.</div>' : '';
-        renderDashboard(el, d, dashState);
-        if (extra) el.insertAdjacentHTML('afterbegin', extra);
+      devCall('apiDevGetDashboard', all.batch.id, stageKey).then(function (d) {
+        renderAnyDashboard(el, d, dashState[stageKey]);
+        var notes = '';
+        if (d.stage.status !== 'open') notes += '<div class="notice info">Pratinjau: stage ini masih terkunci, jadi santri belum bisa melihat dashboard ini.</div>';
+        if (d.unmatchedReports) notes += '<div class="notice err">' + d.unmatchedReports +
+          ' laporan tidak terhitung karena nama santri' + (stageKey === 'stage1' ? ' atau kategorinya' : '') + ' tidak dikenali. Periksa tab Laporan.</div>';
+        if (notes) el.insertAdjacentHTML('afterbegin', notes);
       }).catch(function (e) { el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
     }
 

@@ -60,12 +60,18 @@
     toastTimer = setTimeout(function () { t.classList.remove('show'); }, 3000);
   }
 
+  /**
+   * Tab bar: clicking a [data-tab] button shows the matching [data-panel]. Panels belong to the bar whose
+   * data-group matches theirs, so tab bars can be nested (no data-group = the page's main tabs).
+   */
   function setTabs(root, onChange) {
+    var group = root.getAttribute('data-group') || '';
     var buttons = root.querySelectorAll('[data-tab]');
     buttons.forEach(function (b) {
       b.addEventListener('click', function () {
         buttons.forEach(function (x) { x.classList.toggle('active', x === b); });
         document.querySelectorAll('[data-panel]').forEach(function (p) {
+          if ((p.getAttribute('data-group') || '') !== group) return;
           p.classList.toggle('hidden', p.getAttribute('data-panel') !== b.getAttribute('data-tab'));
         });
         if (onChange) onChange(b.getAttribute('data-tab'));
@@ -180,6 +186,73 @@
     });
     if (!reps.length) html += '<tr><td colspan="5" class="muted">Belum ada laporan dari santri ini.</td></tr>';
     return html + '</tbody></table></div>';
+  }
+
+  /**
+   * Recap for stages without unit targets (Stage 0): report count per santri, answer tallies,
+   * and, when a santri is picked, only that santri's own reports.
+   */
+  function renderRecap(el, d, state) {
+    var sel = state.selected || '';
+    var students = d.students;
+    var selStudent = students.filter(function (s) { return s.id === sel; })[0] || null;
+    var html = '<div class="grid kpis" style="margin-bottom:16px">';
+    if (selStudent) {
+      html += kpi('Laporan', fmtNum(selStudent.count), esc(selStudent.name));
+      html += kpi('Terakhir lapor', esc(selStudent.last || '–'), '');
+    } else {
+      html += kpi('Total laporan', fmtNum(d.totals.reports), 'Semua santri');
+      html += kpi('Santri sudah lapor', d.totals.studentsReported + ' / ' + d.totals.students, '');
+    }
+    html += '</div>';
+
+    html += '<div class="card"><div class="chips">';
+    html += '<button class="chip' + (sel ? '' : ' active') + '" data-student="">Semua</button>';
+    students.forEach(function (s) {
+      html += '<button class="chip' + (sel === s.id ? ' active' : '') + '" data-student="' + esc(s.id) + '">' + esc(s.nickname || s.name.split(' ')[0]) + '</button>';
+    });
+    html += '</div>';
+    if (selStudent) {
+      var reps = selStudent.reports;
+      html += '<h2>Laporan – ' + esc(selStudent.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' laporan)</span></h2>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Detail</th></tr></thead><tbody>';
+      reps.forEach(function (r, i) {
+        var det = r.details.map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
+        html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + (det || '<span class="muted">–</span>') + '</td></tr>';
+      });
+      if (!reps.length) html += '<tr><td colspan="3" class="muted">Belum ada laporan dari santri ini.</td></tr>';
+    } else {
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah laporan</th><th>Terakhir lapor</th></tr></thead><tbody>';
+      students.forEach(function (s, i) {
+        html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="num">' + fmtNum(s.count) + '</td><td>' +
+          (s.last ? esc(s.last) : '<span class="pill behind">Belum lapor</span>') + '</td></tr>';
+      });
+      if (!students.length) html += '<tr><td colspan="4" class="muted">Belum ada santri.</td></tr>';
+    }
+    html += '</tbody></table></div></div>';
+
+    if (!selStudent && d.tallies.length) {
+      html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
+      d.tallies.forEach(function (t) {
+        var max = Math.max.apply(null, t.items.map(function (x) { return x.count; }).concat([1]));
+        html += '<div class="card"><h2>' + esc(t.label) + '</h2><table><tbody>';
+        t.items.forEach(function (it) {
+          html += '<tr><td>' + esc(it.option) + '</td><td class="num">' + fmtNum(it.count) + '</td>' +
+            '<td style="width:35%"><div class="bar"><i style="width:' + Math.round(100 * it.count / max) + '%"></i></div></td></tr>';
+        });
+        html += '</tbody></table></div>';
+      });
+      html += '</div>';
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('[data-student]').forEach(function (b) {
+      b.addEventListener('click', function () { state.selected = b.getAttribute('data-student'); renderRecap(el, d, state); });
+    });
+  }
+
+  /** Draws either dashboard kind returned by apiGetDashboard / apiDevGetDashboard. */
+  function renderAnyDashboard(el, d, state) {
+    if (d.kind === 'recap') renderRecap(el, d, state); else renderDashboard(el, d, state);
   }
 
   function kpi(label, value, hint) {

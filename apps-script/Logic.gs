@@ -1,5 +1,5 @@
 /**
- * Pure logic for Stage 1 - Akademi BTC.
+ * Pure logic for the BTC (Boarding Technician Camp) stages app.
  *
  * Nothing in this file touches Google services (SpreadsheetApp, DriveApp, ...),
  * so it can be unit-tested with Node (see tests/logic.test.js).
@@ -15,8 +15,27 @@ var SYSTEM_FIELDS = {
   category: { type: 'category', label: 'Jenis Perangkat' }
 };
 
-// Bump when existing batches need their stored form changed; see migrateFormFields_.
-var SCHEMA_VERSION = 2;
+// Stage 0 only needs to know who reported.
+var S0_SYSTEM_FIELDS = {
+  student: { type: 'student', label: 'Nama Santri' }
+};
+
+// Bump when existing batches need their stored data changed; see migrateFormFields_ and migrateBatch_.
+// v3: stages (Stages sheet, Stage 0 form and reports).
+var SCHEMA_VERSION = 3;
+
+// The three BTC stages. Keys are fixed; names, descriptions and lock status are edited in Dev.
+var STAGES = [
+  { key: 'stage0', name: 'Stage 0 - Orientasi', description: 'Laporan kegiatan orientasi di cabang penempatan.', status: 'open' },
+  { key: 'stage1', name: 'Stage 1 - Akademi', description: 'Laporan pengerjaan unit dan dashboard target santri.', status: 'locked' },
+  { key: 'stage2', name: 'Stage 2 - Asistensi', description: 'Segera hadir.', status: 'locked' }
+];
+
+// Sheets holding each stage's form and answers. A stage without an entry has no form yet.
+var STAGE_TABLES = {
+  stage0: { fields: 'S0_FormFields', reports: 'S0_Reports' },
+  stage1: { fields: 'FormFields', reports: 'Reports' }
+};
 
 var PHOTO_FIELDS = [
   { key: 'photo_before', label: 'Sebelum bongkar' },
@@ -30,10 +49,30 @@ var TABLE_HEADERS = {
   Students: ['id', 'name', 'nickname', 'active', 'notes'],
   FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
   Milestones: ['day', 'units'],
-  Reports: ['id', 'submittedAt', 'updatedAt', 'studentName']
+  Reports: ['id', 'submittedAt', 'updatedAt', 'studentName'],
+  Stages: ['key', 'name', 'description', 'status', 'order'],
+  S0_FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
+  S0_Reports: ['id', 'submittedAt', 'updatedAt', 'studentName']
 };
 
-var EDITABLE_TABLES = ['Settings', 'Categories', 'Students', 'FormFields', 'Milestones'];
+var EDITABLE_TABLES = ['Settings', 'Categories', 'Students', 'FormFields', 'Milestones', 'Stages', 'S0_FormFields'];
+
+function systemFieldsFor_(fieldsTable) {
+  return fieldsTable === 'S0_FormFields' ? S0_SYSTEM_FIELDS : SYSTEM_FIELDS;
+}
+
+/** Stage rows merged over the defaults, in fixed order, each with `ready` (has a form). */
+function stagesFrom_(rows) {
+  var byKey = {};
+  (rows || []).forEach(function (r) { if (r && r.key) byKey[String(r.key)] = r; });
+  return STAGES.map(function (d, i) {
+    var r = byKey[d.key] || {};
+    return { key: d.key, name: String(r.name || '').trim() || d.name,
+      description: r.description == null ? d.description : String(r.description),
+      status: r.status === 'open' || r.status === 'locked' ? r.status : d.status,
+      order: i + 1, ready: !!STAGE_TABLES[d.key] };
+  });
+}
 
 function toBool_(v) {
   if (typeof v === 'boolean') return v;
@@ -263,6 +302,64 @@ function computeDashboard_(input) {
   };
 }
 
+/** True when a stored checkbox answer ("a, b, c") contains `option`, even if the option itself has commas. */
+function answerHasOption_(stored, option) {
+  return (', ' + String(stored == null ? '' : stored) + ', ').indexOf(', ' + option + ', ') >= 0;
+}
+
+/**
+ * Simple per-santri recap for stages without unit targets (Stage 0).
+ * input: { fields, students, reports }
+ */
+function computeRecap_(input) {
+  var fields = activeFields_(input.fields);
+  var allStudents = (input.students || []).filter(function (s) { return s.id && s.name; });
+  var detailFields = fields.filter(function (f) { return f.key !== 'student' && f.type !== 'file' && f.type !== 'student'; });
+  var tallyFields = fields.filter(function (f) { return f.type === 'checkbox' || f.type === 'select' || f.type === 'radio'; });
+  var rows = {}, order = [];
+  allStudents.forEach(function (s) {
+    var r = { id: String(s.id), name: s.name, nickname: s.nickname || '', active: toBool_(s.active), count: 0, last: '', reports: [] };
+    rows[r.id] = r;
+    order.push(r);
+  });
+  var tallies = tallyFields.map(function (f) {
+    return { key: f.key, label: f.label || f.key, items: splitOptions_(f.options).map(function (o) { return { option: o, count: 0 }; }) };
+  });
+  var unmatched = 0, total = 0;
+  (input.reports || []).forEach(function (rep) {
+    var s = findStudent_(allStudents, rep.student);
+    if (!s) { unmatched++; return; }
+    var row = rows[String(s.id)];
+    var date = String(rep.date || rep.submittedAt || '').slice(0, 10);
+    total++;
+    row.count++;
+    if (date > row.last) row.last = date;
+    var details = [];
+    detailFields.forEach(function (f) {
+      var v = rep[f.key];
+      if (v != null && String(v).trim() !== '') details.push({ label: f.label || f.key, value: String(v) });
+    });
+    row.reports.push({ date: date, submittedAt: rep.submittedAt || '', details: details });
+    tallies.forEach(function (t) {
+      t.items.forEach(function (it) {
+        var v = rep[t.key];
+        if (v != null && (String(v) === it.option || answerHasOption_(v, it.option))) it.count++;
+      });
+    });
+  });
+  var students = order.filter(function (r) { return r.active || r.count > 0; });
+  students.forEach(function (r) {
+    r.reports.sort(function (a, b) { return String(b.submittedAt || b.date).localeCompare(String(a.submittedAt || a.date)); });
+  });
+  return {
+    kind: 'recap',
+    students: students,
+    tallies: tallies,
+    totals: { reports: total, studentsReported: students.filter(function (r) { return r.count > 0; }).length, students: students.length },
+    unmatchedReports: unmatched
+  };
+}
+
 /**
  * Validates a guest submission against the form definition.
  * Returns { values: {key: cellValue}, files: [fieldKey], errors: [msg], studentName }.
@@ -383,18 +480,23 @@ function sanitizeTable_(name, rows, ctx) {
       });
       out.push(row);
     });
-  } else if (name === 'FormFields') {
+  } else if (name === 'Stages') {
+    out = stagesFrom_(rows).map(function (st) {
+      return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order };
+    });
+  } else if (name === 'FormFields' || name === 'S0_FormFields') {
+    var SYS = systemFieldsFor_(name);
     rows.forEach(function (r) {
       var label = String(r.label || '').trim();
       var key = slugKey_(r.key || label);
       if (!key) return;
-      if (SYSTEM_FIELDS[key]) {
+      if (SYS[key]) {
         if (seen[key]) return;
         seen[key] = true;
       } else {
         key = uniqueKey(key, 'field');
       }
-      var sys = SYSTEM_FIELDS[key];
+      var sys = SYS[key];
       var type = sys ? sys.type : (FIELD_TYPES.indexOf(r.type) >= 0 ? r.type : 'text');
       out.push({ key: key, label: label || (sys ? sys.label : key), type: type,
         options: splitOptions_(r.options).join('\n'),
@@ -403,8 +505,8 @@ function sanitizeTable_(name, rows, ctx) {
         // The dashboard cannot count a report without student and category, so those stay on.
         active: (sys && key !== 'date') || r.active === undefined ? true : toBool_(r.active) });
     });
-    Object.keys(SYSTEM_FIELDS).forEach(function (k) {
-      if (!seen[k]) out.push({ key: k, label: SYSTEM_FIELDS[k].label, type: SYSTEM_FIELDS[k].type, options: '',
+    Object.keys(SYS).forEach(function (k) {
+      if (!seen[k]) out.push({ key: k, label: SYS[k].label, type: SYS[k].type, options: '',
         required: true, order: 0, section: '', help: '', active: true });
     });
     out.forEach(function (r, i) { r.order = i + 1; });
@@ -443,6 +545,20 @@ function migrateFormFields_(fields, fromVersion) {
   return out;
 }
 
+/** Stage 0 form: who, where, what they did, and documentation. Branches and activities are edited in Dev. */
+function defaultStage0Fields_() {
+  return [
+    { key: 'student', label: 'Nama Santri', type: 'student', options: '', required: true, order: 1, section: '', help: '', active: true },
+    { key: 'branch', label: 'Lokasi Cabang Penempatan', type: 'select', options: 'Cabang 1\nCabang 2\nCabang 3', required: true, order: 2,
+      section: '', help: '', active: true },
+    { key: 'activities', label: 'Aktivitas yang Dilakukan', type: 'checkbox', required: true, order: 3, section: '', help: 'Boleh pilih lebih dari satu',
+      options: 'Administratif (Buat, menyelesaikan transaksi, serah terima unit done)\nPelayanan (menyambut, mengarahkan, melayani customer)\nCanvassing (sebar brosur)\nLainnya',
+      active: true },
+    { key: 'activities_other', label: 'Jika Lainnya, sebutkan', type: 'text', options: '', required: false, order: 4, section: '', help: '', active: true },
+    { key: 'documentation', label: 'Dokumentasi', type: 'file', options: '', required: false, order: 5, section: '', help: 'Foto atau video', active: true }
+  ];
+}
+
 /** Starting content for a brand-new batch (used for Batch 4 and when no source batch is copied). */
 function defaultBatchTables_(batchName, startDate) {
   return {
@@ -475,6 +591,10 @@ function defaultBatchTables_(batchName, startDate) {
       { key: 'work_type', label: 'Jenis Pekerjaan', type: 'checkbox', options: 'Diagnosa\nGanti LCD\nGanti Baterai\nGanti Konektor Cas\nSoftware / Flashing\nLainnya', required: false, order: 6, section: 'Detail Pekerjaan', help: '', active: true },
       { key: 'notes', label: 'Catatan / Kendala', type: 'textarea', options: '', required: false, order: 7, section: 'Detail Pekerjaan', help: '', active: true },
     ].concat(photoFieldRows_()),
+    Stages: stagesFrom_([]).map(function (st) {
+      return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order };
+    }),
+    S0_FormFields: defaultStage0Fields_(),
     Milestones: [
       { day: 5, units: 13 }, { day: 10, units: 25 }, { day: 15, units: 38 }, { day: 20, units: 50 },
       { day: 25, units: 63 }, { day: 30, units: 75 }, { day: 35, units: 88 }, { day: 40, units: 100 }
@@ -487,6 +607,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     toBool_: toBool_, toNum_: toNum_, slugKey_: slugKey_, dayNumber_: dayNumber_, interpolateMilestone_: interpolateMilestone_,
     computeDashboard_: computeDashboard_, validateReport_: validateReport_, sanitizeTable_: sanitizeTable_,
-    defaultBatchTables_: defaultBatchTables_, migrateFormFields_: migrateFormFields_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
+    defaultBatchTables_: defaultBatchTables_, migrateFormFields_: migrateFormFields_, computeRecap_: computeRecap_,
+    stagesFrom_: stagesFrom_, defaultStage0Fields_: defaultStage0Fields_, STAGE_TABLES: STAGE_TABLES, answerHasOption_: answerHasOption_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
   };
 }

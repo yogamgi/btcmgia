@@ -160,3 +160,47 @@ test('each santri carries their own reports, newest first, with extra answers', 
   assert.deepStrictEqual(abdul.reports[0].details, []);
   assert.strictEqual(d.students.find(s => s.id === 'S002').reports.length, 1);
 });
+
+test('stages: defaults, Stage 1 locked, unknown keys dropped, bad status ignored', () => {
+  const st = L.sanitizeTable_('Stages', [
+    { key: 'stage1', name: 'Stage 1 - Akademi', status: 'open' },
+    { key: 'stage2', status: 'weird' },
+    { key: 'hack', name: 'x', status: 'open' }
+  ], {}).rows;
+  assert.deepStrictEqual(st.map(s => s.key), ['stage0', 'stage1', 'stage2']);
+  assert.deepStrictEqual(st.map(s => s.status), ['open', 'open', 'locked']);
+  const d = L.stagesFrom_([]);
+  assert.strictEqual(d[1].status, 'locked');
+  assert.strictEqual(d[1].name, 'Stage 1 - Akademi');
+  assert.deepStrictEqual(d.map(s => s.ready), [true, true, false]);
+});
+
+test('stage 0 form keeps only the student question fixed', () => {
+  const t = L.sanitizeTable_('S0_FormFields', [{ key: 'branch', label: 'Cabang', type: 'select', options: 'A\nB' }], {}).rows;
+  assert.deepStrictEqual(t.map(f => f.key), ['branch', 'student']);
+  assert.ok(!t.some(f => f.key === 'category' || f.key === 'date'));
+  const defs = L.sanitizeTable_('S0_FormFields', L.defaultStage0Fields_(), {}).rows;
+  assert.deepStrictEqual(defs.map(f => f.key), ['student', 'branch', 'activities', 'activities_other', 'documentation']);
+});
+
+test('stage 0 submission and recap: activities with commas are tallied correctly', () => {
+  const fields = L.defaultStage0Fields_();
+  const students = [{ id: 'S001', name: 'Abdul Latif', active: 'true' }, { id: 'S002', name: 'Budi', active: 'true' }];
+  const acts = fields.find(f => f.key === 'activities').options.split('\n');
+  const ok = L.validateReport_(fields, { student: 'S001', branch: 'Cabang 1', activities: [acts[0], acts[2]] }, students, []);
+  assert.deepStrictEqual(ok.errors, []);
+  const bad = L.validateReport_(fields, { student: 'S001', branch: 'Nowhere', activities: [] }, students, []);
+  assert.strictEqual(bad.errors.length, 2);
+  const reports = [Object.assign({ id: 'a', submittedAt: '2026-10-20 08:00:00' }, ok.values),
+    { id: 'b', submittedAt: '2026-10-21 08:00:00', student: 'S001', branch: 'Cabang 2', activities: acts[3] }];
+  const r = L.computeRecap_({ fields, students, reports });
+  assert.strictEqual(r.totals.reports, 2);
+  assert.strictEqual(r.totals.studentsReported, 1);
+  const abdul = r.students.find(s => s.id === 'S001');
+  assert.strictEqual(abdul.count, 2);
+  assert.strictEqual(abdul.last, '2026-10-21');
+  assert.strictEqual(abdul.reports[0].date, '2026-10-21');
+  const act = r.tallies.find(t => t.key === 'activities').items.map(i => i.count);
+  assert.deepStrictEqual(act, [1, 0, 1, 1]);
+  assert.deepStrictEqual(r.tallies.find(t => t.key === 'branch').items.map(i => i.count), [1, 1, 0]);
+});
