@@ -40,6 +40,14 @@ They call the web app's `doPost` JSON API with `fetch` (no cookies, `text/plain`
 
 The login page shows the BTC logo (`docs/logo.png`). Santri pick their name and type a stage password. The password decides the stage (defaults `btc4stage0`, `btc4stage1`, `btc4stage2`; each is editable in Dev → stage tab and must be unique). An open stage shows its form with the name filled in and fixed; a locked stage shows a "wait until it is unlocked" screen with a "Cek lagi" button. The server checks the password on every submission and dashboard request and always files the report under the logged-in santri.
 
+## Change requests and the Dev bell
+
+On their own activity list in the dashboard, a logged-in santri sees **Ajukan perubahan** on each row. They pick
+*Koreksi data* (with a note) or *Hapus aktivitas*; the request goes to the batch spreadsheet's `Log` sheet.
+The Dev page shows a 🔔 with the number of open requests (checked every minute). Clicking it opens the log:
+open requests with **Lihat aktivitas** (jumps to that row in the stage's Aktivitas tab) and **Tandai selesai**,
+then the latest entries (new activities, requests, Dev edits and deletes).
+
 ## How batches stay separate
 
 ```

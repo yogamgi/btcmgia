@@ -101,6 +101,18 @@
   .stage-card .name { font-size: 17px; font-weight: 650; }
   .stage-card .desc { color: var(--muted); font-size: 14px; flex: 1; }
   .logo { display: block; width: 100%; max-width: 360px; height: auto; margin: 16px auto 12px; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center;
+    padding: 24px 12px; z-index: 20; overflow-y: auto; }
+  .modal { background: var(--surface); color: var(--text); border-radius: 12px; border: 1px solid var(--border); width: 100%; max-width: 640px; }
+  .modal-head { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .modal-head h2 { margin: 0; font-size: 16px; }
+  .modal-body { padding: 16px; }
+  .bell { position: relative; }
+  .bell .badge { position: absolute; top: -6px; right: -6px; background: var(--danger); color: #fff; border-radius: 999px;
+    font-size: 11px; min-width: 18px; height: 18px; line-height: 18px; text-align: center; padding: 0 4px; font-weight: 700; }
+  .log-item { border-bottom: 1px solid var(--border); padding: 8px 0; }
+  .log-item:last-child { border-bottom: 0; }
+  .log-item .meta { color: var(--muted); font-size: 12px; }
   .hidden { display: none !important; }
   .loading { padding: 32px; text-align: center; color: var(--muted); }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg);
@@ -156,12 +168,12 @@
         <button class="btn sm" data-logout>Keluar</button>
       </div>
       <nav class="tabs" id="tabs">
-        <button data-tab="form" class="active">Isi Laporan</button>
+        <button data-tab="form" class="active">Isi Aktivitas</button>
         <button data-tab="dashboard">Dashboard</button>
       </nav>
       <section data-panel="form">
         <div class="card" style="max-width:720px">
-          <h2 id="formTitle">Laporan</h2>
+          <h2 id="formTitle">Aktivitas</h2>
           <p class="muted" id="formDesc"></p>
           <div id="formMsg"></div>
           <form id="reportForm" novalidate></form>
@@ -190,7 +202,7 @@
 
   // Guest calls are safe to repeat (a resent report carries the same id and is stored once), so a dropped
   // connection or a busy server is retried a few times before the page shows an error.
-  var RETRYABLE = ['apiGetPublic', 'apiGetStage', 'apiGuestLogin', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner', 'apiDevGetAll', 'apiDevGetDashboard'];
+  var RETRYABLE = ['apiGetPublic', 'apiGetStage', 'apiGuestLogin', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner', 'apiDevGetAll', 'apiDevGetDashboard', 'apiDevGetLog'];
 
   /** Promise wrapper for server calls: call('apiX', arg1, arg2) */
   function call(fn) {
@@ -268,6 +280,20 @@
    * Tab bar: clicking a [data-tab] button shows the matching [data-panel]. Panels belong to the bar whose
    * data-group matches theirs, so tab bars can be nested (no data-group = the page's main tabs).
    */
+  /** Simple dialog: modal(title, bodyHtml) returns { el, close }. Closes on the ✕ button, Escape, or a click outside. */
+  function modal(title, bodyHtml) {
+    var wrap = document.createElement('div');
+    wrap.className = 'modal-bg';
+    wrap.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><div class="row modal-head"><h2>' + esc(title) +
+      '</h2><span class="spacer"></span><button class="btn sm" type="button" data-close aria-label="Tutup">✕</button></div><div class="modal-body">' + bodyHtml + '</div></div>';
+    function close() { document.removeEventListener('keydown', onKey); wrap.remove(); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    return { el: wrap, close: close };
+  }
+
   function setTabs(root, onChange) {
     var group = root.getAttribute('data-group') || '';
     var buttons = root.querySelectorAll('[data-tab]');
@@ -321,7 +347,7 @@
         esc(s.nickname || s.name.split(' ')[0]) + '</button>';
     });
     html += '</div>';
-    html += selStudent ? studentReportsHtml(selStudent) : studentTableHtml(students, cats);
+    html += selStudent ? studentReportsHtml(selStudent, state) : studentTableHtml(students, cats);
     html += '</div>';
 
     html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
@@ -339,11 +365,11 @@
     html += '</tbody></table></div></div>';
     if (d.showRecent && !selStudent) {
       var rec = d.recent.filter(function (r) { return !sel || r.studentId === sel; }).slice(0, 15);
-      html += '<div class="card"><h2>Laporan terbaru</h2><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Nama</th><th>Perangkat</th><th class="num">Unit</th></tr></thead><tbody>';
+      html += '<div class="card"><h2>Aktivitas terbaru</h2><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Nama</th><th>Perangkat</th><th class="num">Unit</th></tr></thead><tbody>';
       rec.forEach(function (r) {
         html += '<tr><td>' + esc(r.date) + '</td><td>' + esc(r.studentName) + '</td><td>' + esc(r.category) + '</td><td class="num">' + fmtNum(r.units) + '</td></tr>';
       });
-      if (!rec.length) html += '<tr><td colspan="4" class="muted">Belum ada laporan.</td></tr>';
+      if (!rec.length) html += '<tr><td colspan="4" class="muted">Belum ada aktivitas.</td></tr>';
       html += '</tbody></table></div></div>';
     }
     html += '</div>';
@@ -355,6 +381,7 @@
         renderDashboard(el, d, state);
       });
     });
+    bindRequests(el, d, state);
     drawCharts(d, selStudent);
   }
 
@@ -379,17 +406,30 @@
   }
 
   // One santri selected: every unit they reported through the form, newest first.
-  function studentReportsHtml(s) {
-    var reps = s.reports || [];
-    var html = '<h2>Unit yang dilaporkan – ' + esc(s.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' laporan)</span></h2>';
-    html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Perangkat</th><th>Detail</th><th class="num">Unit</th></tr></thead><tbody>';
+  function studentReportsHtml(s, state) {
+    var reps = s.reports || [], ask = canRequest(state, s);
+    var html = '<h2>Unit yang dikerjakan – ' + esc(s.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' aktivitas)</span></h2>';
+    html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Perangkat</th><th>Detail</th><th class="num">Unit</th>' + (ask ? '<th></th>' : '') + '</tr></thead><tbody>';
     reps.forEach(function (r, i) {
       var det = (r.details || []).map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
       html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + esc(r.category) + '</td><td>' + (det || '<span class="muted">–</span>') +
-        '</td><td class="num">' + fmtNum(r.units) + '</td></tr>';
+        '</td><td class="num">' + fmtNum(r.units) + '</td>' + requestCell(ask, r) + '</tr>';
     });
-    if (!reps.length) html += '<tr><td colspan="5" class="muted">Belum ada laporan dari santri ini.</td></tr>';
+    if (!reps.length) html += '<tr><td colspan="' + (ask ? 6 : 5) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
     return html + '</tbody></table></div>';
+  }
+
+  // "Ajukan perubahan" appears only on the logged-in santri's own rows (state.requestFor = their id).
+  function canRequest(state, s) { return !!(state && state.onRequest && state.requestFor && state.requestFor === s.id); }
+  function requestCell(ask, r) {
+    return ask ? '<td class="actions"><button class="btn sm" type="button" data-req="' + esc(r.id) + '" data-req-date="' + esc(r.date) + '">Ajukan perubahan</button></td>' : '';
+  }
+  function bindRequests(el, d, state) {
+    el.querySelectorAll('[data-req]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.onRequest({ reportId: b.getAttribute('data-req'), date: b.getAttribute('data-req-date'), stageKey: d.stage && d.stage.key });
+      });
+    });
   }
 
   /**
@@ -402,10 +442,10 @@
     var selStudent = students.filter(function (s) { return s.id === sel; })[0] || null;
     var html = '<div class="grid kpis" style="margin-bottom:16px">';
     if (selStudent) {
-      html += kpi('Laporan', fmtNum(selStudent.count), esc(selStudent.name));
+      html += kpi('Aktivitas', fmtNum(selStudent.count), esc(selStudent.name));
       html += kpi('Terakhir lapor', esc(selStudent.last || '–'), '');
     } else {
-      html += kpi('Total laporan', fmtNum(d.totals.reports), 'Semua santri');
+      html += kpi('Total aktivitas', fmtNum(d.totals.reports), 'Semua santri');
       html += kpi('Santri sudah lapor', d.totals.studentsReported + ' / ' + d.totals.students, '');
     }
     html += '</div>';
@@ -417,16 +457,16 @@
     });
     html += '</div>';
     if (selStudent) {
-      var reps = selStudent.reports;
-      html += '<h2>Laporan – ' + esc(selStudent.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' laporan)</span></h2>';
-      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Detail</th></tr></thead><tbody>';
+      var reps = selStudent.reports, ask = canRequest(state, selStudent);
+      html += '<h2>Aktivitas – ' + esc(selStudent.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' aktivitas)</span></h2>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Detail</th>' + (ask ? '<th></th>' : '') + '</tr></thead><tbody>';
       reps.forEach(function (r, i) {
         var det = r.details.map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
-        html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + (det || '<span class="muted">–</span>') + '</td></tr>';
+        html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + (det || '<span class="muted">–</span>') + '</td>' + requestCell(ask, r) + '</tr>';
       });
-      if (!reps.length) html += '<tr><td colspan="3" class="muted">Belum ada laporan dari santri ini.</td></tr>';
+      if (!reps.length) html += '<tr><td colspan="' + (ask ? 4 : 3) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
     } else {
-      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah laporan</th><th>Terakhir lapor</th></tr></thead><tbody>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah aktivitas</th><th>Terakhir lapor</th></tr></thead><tbody>';
       students.forEach(function (s, i) {
         html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="num">' + fmtNum(s.count) + '</td><td>' +
           (s.last ? esc(s.last) : '<span class="pill behind">Belum lapor</span>') + '</td></tr>';
@@ -452,6 +492,7 @@
     el.querySelectorAll('[data-student]').forEach(function (b) {
       b.addEventListener('click', function () { state.selected = b.getAttribute('data-student'); renderRecap(el, d, state); });
     });
+    bindRequests(el, d, state);
   }
 
   /** Draws either dashboard kind returned by apiGetDashboard / apiDevGetDashboard. */
@@ -638,6 +679,8 @@
       if (same && !document.getElementById('stageView').classList.contains('hidden')) return; // keep what the santri is typing
       form = r.form;
       dashState.selected = auth.student; // dashboard opens on the santri's own reports
+      dashState.requestFor = String(auth.student);
+      dashState.onRequest = openRequest;
       showOnly('stageView');
       document.getElementById('stageTitle').textContent = stage.name;
       document.getElementById('whoAmI').textContent = auth.studentName;
@@ -735,8 +778,8 @@
         if (f.section && f.section !== section) { section = f.section; html += '<h3>' + esc(section) + '</h3>'; }
         html += fieldHtml(f);
       });
-      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim laporan</button>' +
-        '<button class="btn" type="submit" id="anotherBtn" data-another title="Simpan laporan ini lalu buka form kosong">Masukan laporan lainnya</button></div>';
+      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim aktivitas</button>' +
+        '<button class="btn" type="submit" id="anotherBtn" data-another title="Simpan aktivitas ini lalu buka form kosong">Masukan aktivitas lainnya</button></div>';
       el.innerHTML = html;
     }
 
@@ -791,7 +834,7 @@
       box.innerHTML = /^video\//.test(file.type) ? '<video src="' + url + '" muted controls></video>' : '<img src="' + url + '" alt="">';
     });
 
-    /** Shows the blank form again, e.g. after "Masukan laporan lainnya". */
+    /** Shows the blank form again, e.g. after "Masukan aktivitas lainnya". */
     function blankForm(notice) {
       renderForm();
       if (notice) document.getElementById('formMsg').innerHTML = notice;
@@ -804,7 +847,7 @@
 
     document.getElementById('reportForm').addEventListener('submit', function (e) {
       e.preventDefault();
-      // "Masukan laporan lainnya": save this report, then reopen the same form blank.
+      // "Masukan aktivitas lainnya": save this report, then reopen the same form blank.
       var another = !!(e.submitter && e.submitter.hasAttribute('data-another'));
       var el = e.target, answers = {}, missing = [], pending = [];
       form.fields.forEach(function (f) {
@@ -839,10 +882,10 @@
       }).then(function () {
         delete dash[stageKey];
         var ok = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
-        if (another) return blankForm(ok + '<p class="muted">Laporan sebelumnya tersimpan. Silakan isi laporan berikutnya.</p>');
+        if (another) return blankForm(ok + '<p class="muted">Aktivitas sebelumnya tersimpan. Silakan isi aktivitas berikutnya.</p>');
         // Like Google Forms: a thank-you screen with a way to send another report.
         el.innerHTML = '';
-        msg.innerHTML = ok + '<div class="row"><button class="btn primary" type="button" data-new-report>Masukan laporan lainnya</button></div>';
+        msg.innerHTML = ok + '<div class="row"><button class="btn primary" type="button" data-new-report>Masukan aktivitas lainnya</button></div>';
         msg.scrollIntoView({ behavior: 'smooth' });
       }).catch(function (err) {
         if (loginExpired(err)) return;
@@ -863,6 +906,33 @@
         dash[key] = d;
         if (stage && stage.key === key) renderAnyDashboard(el, d, dashState);
       }).catch(function (e) { if (!loginExpired(e)) el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
+    }
+
+    /** "Ajukan perubahan": the santri asks the developer to correct or delete one of their own activities. */
+    function openRequest(rep) {
+      var key = stage.key;
+      var m = modal('Ajukan perubahan', '<p class="muted">Aktivitas tanggal ' + esc(rep.date || '–') + '. Permintaan ini dikirim ke developer untuk dicek.</p>' +
+        '<div class="field" style="margin-bottom:14px"><span class="lbl" style="font-weight:600">Jenis perubahan</span>' +
+        '<label class="choice"><input type="radio" name="reqKind" value="koreksi" checked> Koreksi data</label>' +
+        '<label class="choice"><input type="radio" name="reqKind" value="hapus"> Hapus aktivitas</label></div>' +
+        '<label class="field"><span class="lbl">Catatan</span><textarea id="reqNote" rows="3" maxlength="1000" placeholder="Contoh: jumlah unit seharusnya 2, bukan 3."></textarea></label>' +
+        '<div id="reqMsg"></div><div class="row"><span class="spacer"></span><button class="btn" type="button" data-close>Batal</button>' +
+        '<button class="btn primary" type="button" id="reqSend">Kirim permintaan</button></div>');
+      var send = m.el.querySelector('#reqSend'), msg = m.el.querySelector('#reqMsg');
+      send.addEventListener('click', function () {
+        var kind = m.el.querySelector('input[name="reqKind"]:checked').value;
+        var note = m.el.querySelector('#reqNote').value.trim();
+        if (kind === 'koreksi' && !note) { msg.innerHTML = '<div class="notice err">Tulis apa yang perlu dikoreksi.</div>'; return; }
+        send.disabled = true; send.textContent = 'Mengirim…';
+        call('apiRequestChange', auth.batchId, key, creds(), { reportId: rep.reportId, kind: kind, note: note }).then(function () {
+          m.el.querySelector('.modal-body').innerHTML = '<div class="notice ok">Permintaan terkirim. Developer akan mengecek dan memperbaiki aktivitas ini.</div>' +
+            '<div class="row"><span class="spacer"></span><button class="btn primary" type="button" data-close>Tutup</button></div>';
+        }).catch(function (e) {
+          if (loginExpired(e)) { m.close(); return; }
+          send.disabled = false; send.textContent = 'Kirim permintaan';
+          msg.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+        });
+      });
     }
 
     /** The stage password changed or the santri was removed: back to the login panel. */

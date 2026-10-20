@@ -101,6 +101,18 @@
   .stage-card .name { font-size: 17px; font-weight: 650; }
   .stage-card .desc { color: var(--muted); font-size: 14px; flex: 1; }
   .logo { display: block; width: 100%; max-width: 360px; height: auto; margin: 16px auto 12px; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center;
+    padding: 24px 12px; z-index: 20; overflow-y: auto; }
+  .modal { background: var(--surface); color: var(--text); border-radius: 12px; border: 1px solid var(--border); width: 100%; max-width: 640px; }
+  .modal-head { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .modal-head h2 { margin: 0; font-size: 16px; }
+  .modal-body { padding: 16px; }
+  .bell { position: relative; }
+  .bell .badge { position: absolute; top: -6px; right: -6px; background: var(--danger); color: #fff; border-radius: 999px;
+    font-size: 11px; min-width: 18px; height: 18px; line-height: 18px; text-align: center; padding: 0 4px; font-weight: 700; }
+  .log-item { border-bottom: 1px solid var(--border); padding: 8px 0; }
+  .log-item:last-child { border-bottom: 0; }
+  .log-item .meta { color: var(--muted); font-size: 12px; }
   .hidden { display: none !important; }
   .loading { padding: 32px; text-align: center; color: var(--muted); }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg);
@@ -121,6 +133,7 @@
       <a class="btn sm" id="lnkSheet" target="_blank">Spreadsheet</a>
       <a class="btn sm" id="lnkFolder" target="_blank">Folder</a>
       <a class="btn sm" id="lnkGuest" target="_blank">Halaman Guest</a>
+      <button class="btn sm bell" id="bellBtn" type="button" title="Notifikasi" aria-label="Notifikasi">🔔<span class="badge hidden" id="bellBadge">0</span></button>
       <button class="btn sm" id="logoutBtn">Keluar</button>
     </div>
   </header>
@@ -154,7 +167,7 @@
           <label class="field"><span class="lbl">Nama batch</span><input id="nbName" placeholder="Batch 5"></label>
           <label class="field"><span class="lbl">Hari pertama Stage 1</span><input id="nbStart" type="date"></label>
           <label class="field"><span class="lbl">Salin pengaturan dari</span>
-            <span class="help">Form semua stage, kategori, target, milestone, dan pengaturan disalin. Laporan tidak pernah disalin. Status kunci stage kembali ke awal (Stage 0 terbuka, lainnya terkunci).</span>
+            <span class="help">Form semua stage, kategori, target, milestone, dan pengaturan disalin. Aktivitas tidak pernah disalin. Status kunci stage kembali ke awal (Stage 0 terbuka, lainnya terkunci).</span>
             <select id="nbSource"></select></label>
           <label class="choice"><input type="checkbox" id="nbStudents"> Salin juga daftar santri</label>
           <div class="row" style="margin-top:12px"><button class="btn primary" id="nbCreate">Buat batch</button></div>
@@ -169,7 +182,7 @@
       <div data-panel="general" class="hidden">
         <div class="card"><h2>Santri (semua stage)</h2>
           <p class="muted">Daftar ini dipakai form dan dashboard semua stage. Target per santri diatur di tab stage masing-masing.
-            Santri nonaktif tidak muncul di form, tapi laporannya tetap dihitung.</p>
+            Santri nonaktif tidak muncul di form, tapi aktivitasnya tetap dihitung.</p>
           <div id="ed_Students"></div></div>
         <div class="card" data-banner=""></div>
       </div>
@@ -179,7 +192,7 @@
         <div class="card" data-banner="stage0"></div>
         <nav class="tabs" data-group="stage0">
           <button data-tab="s0form" class="active">Form</button>
-          <button data-tab="s0rep">Laporan</button>
+          <button data-tab="s0rep">Aktivitas</button>
           <button data-tab="s0dash">Dashboard</button>
         </nav>
         <div data-group="stage0" data-panel="s0form"><div class="card"><h2>Pertanyaan form Stage 0</h2>
@@ -199,7 +212,7 @@
           <button data-tab="s1targets">Target santri</button>
           <button data-tab="FormFields">Form</button>
           <button data-tab="Milestones">Milestone</button>
-          <button data-tab="s1rep">Laporan</button>
+          <button data-tab="s1rep">Aktivitas</button>
           <button data-tab="s1dash">Dashboard</button>
         </nav>
         <div data-group="stage1" data-panel="Settings"><div class="card"><h2>Pengaturan Stage 1</h2>
@@ -214,7 +227,7 @@
         <div data-group="stage1" data-panel="FormFields" class="hidden"><div class="card"><h2>Pertanyaan form Stage 1</h2>
           <p class="muted">Kolom "section" mengelompokkan pertanyaan. Pilihan untuk select/radio/checkbox ditulis satu per baris.
             Pertanyaan tanggal, nama santri, dan jenis perangkat dipakai dashboard sehingga tidak bisa dihapus (label dan urutannya bisa diubah).
-            Jumlah unit tidak ditanyakan: setiap laporan dihitung 1 unit di dashboard.
+            Jumlah unit tidak ditanyakan: setiap aktivitas dihitung 1 unit di dashboard.
             Menghapus pertanyaan tidak menghapus jawaban lama di spreadsheet.</p>
           <div id="ed_FormFields"></div></div></div>
         <div data-group="stage1" data-panel="Milestones" class="hidden"><div class="card" style="max-width:520px"><h2>Milestone target kumulatif</h2>
@@ -248,7 +261,7 @@
 
   // Guest calls are safe to repeat (a resent report carries the same id and is stored once), so a dropped
   // connection or a busy server is retried a few times before the page shows an error.
-  var RETRYABLE = ['apiGetPublic', 'apiGetStage', 'apiGuestLogin', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner', 'apiDevGetAll', 'apiDevGetDashboard'];
+  var RETRYABLE = ['apiGetPublic', 'apiGetStage', 'apiGuestLogin', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner', 'apiDevGetAll', 'apiDevGetDashboard', 'apiDevGetLog'];
 
   /** Promise wrapper for server calls: call('apiX', arg1, arg2) */
   function call(fn) {
@@ -326,6 +339,20 @@
    * Tab bar: clicking a [data-tab] button shows the matching [data-panel]. Panels belong to the bar whose
    * data-group matches theirs, so tab bars can be nested (no data-group = the page's main tabs).
    */
+  /** Simple dialog: modal(title, bodyHtml) returns { el, close }. Closes on the ✕ button, Escape, or a click outside. */
+  function modal(title, bodyHtml) {
+    var wrap = document.createElement('div');
+    wrap.className = 'modal-bg';
+    wrap.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><div class="row modal-head"><h2>' + esc(title) +
+      '</h2><span class="spacer"></span><button class="btn sm" type="button" data-close aria-label="Tutup">✕</button></div><div class="modal-body">' + bodyHtml + '</div></div>';
+    function close() { document.removeEventListener('keydown', onKey); wrap.remove(); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    return { el: wrap, close: close };
+  }
+
   function setTabs(root, onChange) {
     var group = root.getAttribute('data-group') || '';
     var buttons = root.querySelectorAll('[data-tab]');
@@ -379,7 +406,7 @@
         esc(s.nickname || s.name.split(' ')[0]) + '</button>';
     });
     html += '</div>';
-    html += selStudent ? studentReportsHtml(selStudent) : studentTableHtml(students, cats);
+    html += selStudent ? studentReportsHtml(selStudent, state) : studentTableHtml(students, cats);
     html += '</div>';
 
     html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
@@ -397,11 +424,11 @@
     html += '</tbody></table></div></div>';
     if (d.showRecent && !selStudent) {
       var rec = d.recent.filter(function (r) { return !sel || r.studentId === sel; }).slice(0, 15);
-      html += '<div class="card"><h2>Laporan terbaru</h2><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Nama</th><th>Perangkat</th><th class="num">Unit</th></tr></thead><tbody>';
+      html += '<div class="card"><h2>Aktivitas terbaru</h2><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Nama</th><th>Perangkat</th><th class="num">Unit</th></tr></thead><tbody>';
       rec.forEach(function (r) {
         html += '<tr><td>' + esc(r.date) + '</td><td>' + esc(r.studentName) + '</td><td>' + esc(r.category) + '</td><td class="num">' + fmtNum(r.units) + '</td></tr>';
       });
-      if (!rec.length) html += '<tr><td colspan="4" class="muted">Belum ada laporan.</td></tr>';
+      if (!rec.length) html += '<tr><td colspan="4" class="muted">Belum ada aktivitas.</td></tr>';
       html += '</tbody></table></div></div>';
     }
     html += '</div>';
@@ -413,6 +440,7 @@
         renderDashboard(el, d, state);
       });
     });
+    bindRequests(el, d, state);
     drawCharts(d, selStudent);
   }
 
@@ -437,17 +465,30 @@
   }
 
   // One santri selected: every unit they reported through the form, newest first.
-  function studentReportsHtml(s) {
-    var reps = s.reports || [];
-    var html = '<h2>Unit yang dilaporkan – ' + esc(s.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' laporan)</span></h2>';
-    html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Perangkat</th><th>Detail</th><th class="num">Unit</th></tr></thead><tbody>';
+  function studentReportsHtml(s, state) {
+    var reps = s.reports || [], ask = canRequest(state, s);
+    var html = '<h2>Unit yang dikerjakan – ' + esc(s.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' aktivitas)</span></h2>';
+    html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Perangkat</th><th>Detail</th><th class="num">Unit</th>' + (ask ? '<th></th>' : '') + '</tr></thead><tbody>';
     reps.forEach(function (r, i) {
       var det = (r.details || []).map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
       html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + esc(r.category) + '</td><td>' + (det || '<span class="muted">–</span>') +
-        '</td><td class="num">' + fmtNum(r.units) + '</td></tr>';
+        '</td><td class="num">' + fmtNum(r.units) + '</td>' + requestCell(ask, r) + '</tr>';
     });
-    if (!reps.length) html += '<tr><td colspan="5" class="muted">Belum ada laporan dari santri ini.</td></tr>';
+    if (!reps.length) html += '<tr><td colspan="' + (ask ? 6 : 5) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
     return html + '</tbody></table></div>';
+  }
+
+  // "Ajukan perubahan" appears only on the logged-in santri's own rows (state.requestFor = their id).
+  function canRequest(state, s) { return !!(state && state.onRequest && state.requestFor && state.requestFor === s.id); }
+  function requestCell(ask, r) {
+    return ask ? '<td class="actions"><button class="btn sm" type="button" data-req="' + esc(r.id) + '" data-req-date="' + esc(r.date) + '">Ajukan perubahan</button></td>' : '';
+  }
+  function bindRequests(el, d, state) {
+    el.querySelectorAll('[data-req]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.onRequest({ reportId: b.getAttribute('data-req'), date: b.getAttribute('data-req-date'), stageKey: d.stage && d.stage.key });
+      });
+    });
   }
 
   /**
@@ -460,10 +501,10 @@
     var selStudent = students.filter(function (s) { return s.id === sel; })[0] || null;
     var html = '<div class="grid kpis" style="margin-bottom:16px">';
     if (selStudent) {
-      html += kpi('Laporan', fmtNum(selStudent.count), esc(selStudent.name));
+      html += kpi('Aktivitas', fmtNum(selStudent.count), esc(selStudent.name));
       html += kpi('Terakhir lapor', esc(selStudent.last || '–'), '');
     } else {
-      html += kpi('Total laporan', fmtNum(d.totals.reports), 'Semua santri');
+      html += kpi('Total aktivitas', fmtNum(d.totals.reports), 'Semua santri');
       html += kpi('Santri sudah lapor', d.totals.studentsReported + ' / ' + d.totals.students, '');
     }
     html += '</div>';
@@ -475,16 +516,16 @@
     });
     html += '</div>';
     if (selStudent) {
-      var reps = selStudent.reports;
-      html += '<h2>Laporan – ' + esc(selStudent.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' laporan)</span></h2>';
-      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Detail</th></tr></thead><tbody>';
+      var reps = selStudent.reports, ask = canRequest(state, selStudent);
+      html += '<h2>Aktivitas – ' + esc(selStudent.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' aktivitas)</span></h2>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Detail</th>' + (ask ? '<th></th>' : '') + '</tr></thead><tbody>';
       reps.forEach(function (r, i) {
         var det = r.details.map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
-        html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + (det || '<span class="muted">–</span>') + '</td></tr>';
+        html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + (det || '<span class="muted">–</span>') + '</td>' + requestCell(ask, r) + '</tr>';
       });
-      if (!reps.length) html += '<tr><td colspan="3" class="muted">Belum ada laporan dari santri ini.</td></tr>';
+      if (!reps.length) html += '<tr><td colspan="' + (ask ? 4 : 3) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
     } else {
-      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah laporan</th><th>Terakhir lapor</th></tr></thead><tbody>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah aktivitas</th><th>Terakhir lapor</th></tr></thead><tbody>';
       students.forEach(function (s, i) {
         html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="num">' + fmtNum(s.count) + '</td><td>' +
           (s.last ? esc(s.last) : '<span class="pill behind">Belum lapor</span>') + '</td></tr>';
@@ -510,6 +551,7 @@
     el.querySelectorAll('[data-student]').forEach(function (b) {
       b.addEventListener('click', function () { state.selected = b.getAttribute('data-student'); renderRecap(el, d, state); });
     });
+    bindRequests(el, d, state);
   }
 
   /** Draws either dashboard kind returned by apiGetDashboard / apiDevGetDashboard. */
@@ -696,7 +738,80 @@
       renderTargets();
       reportPanels.forEach(function (rp) { rp.render(); });
       refreshPreview();
+      loadLog();
     }
+
+    // ------------------------------------------------------------ notifications (🔔): change requests + latest log
+    var log = null, logTimer = null, logModal = null;
+    var LOG_KIND = { request: 'Permintaan', activity: 'Aktivitas baru', dev: 'Developer' };
+
+    function loadLog() {
+      if (!all || !token) return Promise.resolve();
+      clearTimeout(logTimer);
+      logTimer = setTimeout(loadLog, 60000);
+      var batchId = all.batch.id;
+      return devCall('apiDevGetLog', batchId).then(function (l) {
+        if (!all || all.batch.id !== batchId) return;
+        log = l;
+        var badge = document.getElementById('bellBadge');
+        badge.textContent = l.openCount > 99 ? '99+' : String(l.openCount);
+        badge.classList.toggle('hidden', !l.openCount);
+        document.getElementById('bellBtn').title = l.openCount ? l.openCount + ' permintaan perubahan perlu dicek' : 'Notifikasi';
+        if (logModal && document.body.contains(logModal.el)) renderLog();
+      }).catch(function () {});
+    }
+
+    function stageName(key) {
+      var st = stageRows().filter(function (x) { return x.key === key; })[0];
+      return st ? st.name : key;
+    }
+
+    function logItem(e, withActions) {
+      var acts = '';
+      if (withActions) {
+        acts = '<div class="row" style="margin-top:6px">' +
+          (e.reportId ? '<button class="btn sm" type="button" data-log-open="' + esc(e.reportId) + '" data-log-stage="' + esc(e.stage) + '">Lihat aktivitas</button>' : '') +
+          '<button class="btn sm primary" type="button" data-log-done="' + esc(e.id) + '">Tandai selesai</button></div>';
+      }
+      var status = e.kind === 'request' ? (e.status === 'open' ? ' <span class="pill none">Belum dicek</span>' : ' <span class="pill ok">Selesai</span>') : '';
+      return '<div class="log-item"><div><strong>' + esc(LOG_KIND[e.kind] || e.kind) + '</strong>' + status +
+        (e.studentName ? ' · ' + esc(e.studentName) : '') + '</div><div>' + esc(e.message) + '</div>' +
+        '<div class="meta">' + esc(e.time) + (e.stage ? ' · ' + esc(stageName(e.stage)) : '') + '</div>' + acts + '</div>';
+    }
+
+    function renderLog() {
+      var body = logModal.el.querySelector('.modal-body');
+      if (!log) { body.innerHTML = '<div class="loading">Memuat…</div>'; return; }
+      var html = '<h3 style="margin:0 0 6px">Perlu dicek (' + log.openCount + ')</h3>';
+      html += log.open.length ? log.open.map(function (e) { return logItem(e, true); }).join('')
+        : '<p class="muted">Tidak ada permintaan koreksi atau hapus dari santri.</p>';
+      html += '<h3 style="margin:16px 0 6px">Log terbaru</h3>';
+      html += log.recent.length ? log.recent.slice(0, 50).map(function (e) { return logItem(e, false); }).join('')
+        : '<p class="muted">Belum ada catatan.</p>';
+      body.innerHTML = html;
+    }
+
+    document.getElementById('bellBtn').addEventListener('click', function () {
+      logModal = modal('Notifikasi · ' + all.batch.name, '');
+      renderLog();
+      loadLog();
+      logModal.el.addEventListener('click', function (ev) {
+        var open = ev.target.closest('[data-log-open]'), done = ev.target.closest('[data-log-done]');
+        if (open) {
+          var rp = reportPanels.filter(function (x) { return x.stageKey === open.getAttribute('data-log-stage'); })[0];
+          if (!rp) { toast('Stage ini belum punya tab Aktivitas.'); return; }
+          logModal.close();
+          rp.show(open.getAttribute('data-log-open'));
+        } else if (done) {
+          done.disabled = true;
+          devCall('apiDevResolveLog', all.batch.id, done.getAttribute('data-log-done'), true).then(function (l) {
+            log = l; renderLog();
+            var badge = document.getElementById('bellBadge');
+            badge.textContent = String(l.openCount); badge.classList.toggle('hidden', !l.openCount);
+          }).catch(function (err) { done.disabled = false; toast(err.message); });
+        }
+      });
+    });
 
     // ------------------------------------------------------------ stages (name, description, lock)
     function stageRows() { return all.tables.Stages.rows; }
@@ -855,7 +970,7 @@
       if (name === 'Students') {
         // Targets are stage settings (Stage 1 → Target santri); the rows keep them, so saving here does not lose them.
         var cols = [{ key: 'name', label: 'Nama lengkap' }, { key: 'nickname', label: 'Panggilan' }, { key: 'active', label: 'Aktif', type: 'bool' }];
-        cols.push({ key: 'notes', label: 'Catatan' }, { key: 'id', label: 'ID', title: 'Dipakai laporan untuk mengenali santri. Kosongkan untuk dibuat otomatis.' });
+        cols.push({ key: 'notes', label: 'Catatan' }, { key: 'id', label: 'ID', title: 'Dipakai aktivitas untuk mengenali santri. Kosongkan untuk dibuat otomatis.' });
         return cols;
       }
       if (isFormTable(name)) return [{ key: 'label', label: 'Pertanyaan' }, { key: 'key', label: 'Key' },
@@ -1169,9 +1284,9 @@
     /** Report list for one stage: filter, inline edit, add, single and bulk delete. */
     function reportsPanel(stageKey, fieldsTable, reportsTable) {
       var root = document.querySelector('[data-reports="' + stageKey + '"]');
-      root.innerHTML = '<div class="card"><h2>Laporan</h2><div class="row" style="margin-bottom:12px">' +
+      root.innerHTML = '<div class="card"><h2>Aktivitas</h2><div class="row" style="margin-bottom:12px">' +
         '<input data-filter placeholder="Cari nama / tanggal…" style="max-width:280px"><span class="spacer"></span>' +
-        '<button class="btn danger" data-bulkdel disabled>Hapus terpilih</button><button class="btn" data-add>+ Tambah laporan</button></div>' +
+        '<button class="btn danger" data-bulkdel disabled>Hapus terpilih</button><button class="btn" data-add>+ Tambah aktivitas</button></div>' +
         '<div class="table-wrap" data-table></div></div>';
       var filter = root.querySelector('[data-filter]'), bulkDel = root.querySelector('[data-bulkdel]'), table = root.querySelector('[data-table]');
       var editing = null, selectedIds = {};
@@ -1232,9 +1347,9 @@
             ? '<button class="btn sm primary" data-r="save">Simpan</button><button class="btn sm" data-r="cancel">Batal</button>'
             : '<button class="btn sm" data-r="edit">Edit</button><button class="btn sm danger" data-r="del">Hapus</button>') + '</td></tr>';
         });
-        if (!rows.length) html += '<tr><td colspan="' + (cols.keys.length + 3) + '" class="muted">Belum ada laporan.</td></tr>';
+        if (!rows.length) html += '<tr><td colspan="' + (cols.keys.length + 3) + '" class="muted">Belum ada aktivitas.</td></tr>';
         html += '</tbody></table>';
-        if (rows.length > 300) html += '<p class="muted">Menampilkan 300 laporan terbaru. Gunakan pencarian atau buka spreadsheet untuk data lengkap.</p>';
+        if (rows.length > 300) html += '<p class="muted">Menampilkan 300 aktivitas terbaru. Gunakan pencarian atau buka spreadsheet untuk data lengkap.</p>';
         table.innerHTML = html;
         updateBulk();
       }
@@ -1262,9 +1377,9 @@
 
       bulkDel.addEventListener('click', function () {
         var ids = Object.keys(selectedIds).filter(function (k) { return selectedIds[k]; });
-        if (!ids.length || !confirm('Hapus ' + ids.length + ' laporan terpilih? Tidak bisa dibatalkan.')) return;
+        if (!ids.length || !confirm('Hapus ' + ids.length + ' aktivitas terpilih? Tidak bisa dibatalkan.')) return;
         bulkDel.disabled = true;
-        devCall('apiDevDeleteReport', all.batch.id, ids, stageKey).then(function (d) { selectedIds = {}; apply(d); toast(ids.length + ' laporan dihapus.'); })
+        devCall('apiDevDeleteReport', all.batch.id, ids, stageKey).then(function (d) { selectedIds = {}; apply(d); toast(ids.length + ' aktivitas dihapus.'); })
           .catch(function (err) { toast(err.message); bulkDel.disabled = false; });
       });
 
@@ -1277,19 +1392,30 @@
         if (act === 'edit') { editing = id; return render(); }
         if (act === 'cancel') { editing = null; return render(); }
         if (act === 'del') {
-          if (!confirm('Hapus laporan ini? Tidak bisa dibatalkan.')) return;
-          return devCall('apiDevDeleteReport', all.batch.id, id, stageKey).then(function (d) { apply(d); toast('Laporan dihapus.'); }).catch(function (err) { toast(err.message); });
+          if (!confirm('Hapus aktivitas ini? Tidak bisa dibatalkan.')) return;
+          return devCall('apiDevDeleteReport', all.batch.id, id, stageKey).then(function (d) { apply(d); toast('Aktivitas dihapus.'); }).catch(function (err) { toast(err.message); });
         }
         if (act === 'save') {
           var row = { id: id };
           tr.querySelectorAll('[data-k]').forEach(function (inp) { row[inp.getAttribute('data-k')] = inp.value; });
           b.disabled = true;
-          devCall('apiDevSaveReport', all.batch.id, row, stageKey).then(function (d) { editing = null; apply(d); toast('Laporan tersimpan.'); })
+          devCall('apiDevSaveReport', all.batch.id, row, stageKey).then(function (d) { editing = null; apply(d); toast('Aktivitas tersimpan.'); })
             .catch(function (err) { toast(err.message); b.disabled = false; });
         }
       });
 
-      return { render: render };
+      /** Opens this panel's Aktivitas tab filtered to one activity (from a change request). */
+      function show(id) {
+        var top = document.querySelector('#tabs [data-tab="' + stageKey + '"]');
+        if (top) top.click();
+        var sub = document.querySelector('nav.tabs[data-group="' + stageKey + '"] [data-tab="' + (stageKey === 'stage0' ? 's0rep' : 's1rep') + '"]');
+        if (sub) sub.click();
+        filter.value = id;
+        render();
+        root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      return { render: render, show: show, stageKey: stageKey };
     }
 
     var reportPanels = [reportsPanel('stage0', 'S0_FormFields', 'S0_Reports'), reportsPanel('stage1', 'FormFields', 'Reports')];
@@ -1303,7 +1429,7 @@
         var notes = '';
         if (d.stage.status !== 'open') notes += '<div class="notice info">Pratinjau: stage ini masih terkunci, jadi santri belum bisa melihat dashboard ini.</div>';
         if (d.unmatchedReports) notes += '<div class="notice err">' + d.unmatchedReports +
-          ' laporan tidak terhitung karena nama santri' + (stageKey === 'stage1' ? ' atau kategorinya' : '') + ' tidak dikenali. Periksa tab Laporan.</div>';
+          ' aktivitas tidak terhitung karena nama santri' + (stageKey === 'stage1' ? ' atau kategorinya' : '') + ' tidak dikenali. Periksa tab Aktivitas.</div>';
         if (notes) el.insertAdjacentHTML('afterbegin', notes);
       }).catch(function (e) { el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
     }

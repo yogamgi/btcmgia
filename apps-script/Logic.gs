@@ -21,13 +21,27 @@ var S0_SYSTEM_FIELDS = {
 };
 
 // Bump when existing batches need their stored data changed; see migrateFormFields_ and migrateBatch_.
-// v3: stages (Stages sheet, Stage 0 form and reports).
-var SCHEMA_VERSION = 3;
+// v3: stages (Stages sheet, Stage 0 form and reports). v4: the word "Laporan" becomes "Aktivitas" in stored texts.
+var SCHEMA_VERSION = 4;
+
+/** v4 wording: "Laporan" -> "Aktivitas" (keeps capitalisation; "laporannya" -> "aktivitasnya"). */
+function renameLaporan_(text) {
+  return String(text == null ? '' : text).replace(/LAPORAN/g, 'AKTIVITAS').replace(/Laporan/g, 'Aktivitas').replace(/laporan/g, 'aktivitas');
+}
+
+/** Applies renameLaporan_ to the given text columns of every row. */
+function renameLaporanRows_(rows, cols) {
+  return (rows || []).map(function (r) {
+    var o = {};
+    Object.keys(r).forEach(function (k) { o[k] = cols.indexOf(k) >= 0 && typeof r[k] === 'string' ? renameLaporan_(r[k]) : r[k]; });
+    return o;
+  });
+}
 
 // The three BTC stages. Keys are fixed; names, descriptions and lock status are edited in Dev.
 var STAGES = [
-  { key: 'stage0', name: 'Stage 0 - Orientasi', description: 'Laporan kegiatan orientasi di cabang penempatan.', status: 'open', password: 'btc4stage0' },
-  { key: 'stage1', name: 'Stage 1 - Akademi', description: 'Laporan pengerjaan unit dan dashboard target santri.', status: 'locked', password: 'btc4stage1' },
+  { key: 'stage0', name: 'Stage 0 - Orientasi', description: 'Aktivitas orientasi di cabang penempatan.', status: 'open', password: 'btc4stage0' },
+  { key: 'stage1', name: 'Stage 1 - Akademi', description: 'Aktivitas pengerjaan unit dan dashboard target santri.', status: 'locked', password: 'btc4stage1' },
   { key: 'stage2', name: 'Stage 2 - Asistensi', description: 'Segera hadir.', status: 'locked', password: 'btc4stage2' }
 ];
 
@@ -52,8 +66,12 @@ var TABLE_HEADERS = {
   Reports: ['id', 'submittedAt', 'updatedAt', 'studentName'],
   Stages: ['key', 'name', 'description', 'status', 'order', 'bannerFileId', 'password'],
   S0_FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
-  S0_Reports: ['id', 'submittedAt', 'updatedAt', 'studentName']
+  S0_Reports: ['id', 'submittedAt', 'updatedAt', 'studentName'],
+  // Activity log for the Dev bell: new activities, change requests from santri, Dev edits.
+  Log: ['id', 'time', 'kind', 'stage', 'student', 'studentName', 'reportId', 'message', 'status']
 };
+
+var REQUEST_KINDS = { koreksi: 'Koreksi data', hapus: 'Hapus aktivitas' };
 
 var EDITABLE_TABLES = ['Settings', 'Categories', 'Students', 'FormFields', 'Milestones', 'Stages', 'S0_FormFields'];
 
@@ -260,7 +278,7 @@ function computeDashboard_(input) {
       var v = rep[f.key];
       if (v != null && String(v).trim() !== '') details.push({ label: f.label || f.key, value: String(v) });
     });
-    row.reports.push({ date: entry.date, submittedAt: entry.submittedAt, category: c.label, units: units, details: details });
+    row.reports.push({ id: String(rep.id || ''), date: entry.date, submittedAt: entry.submittedAt, category: c.label, units: units, details: details });
   });
 
   var students = order.filter(function (r) { return r.active || r.totalDone > 0; });
@@ -356,7 +374,7 @@ function computeRecap_(input) {
       var v = rep[f.key];
       if (v != null && String(v).trim() !== '') details.push({ label: f.label || f.key, value: String(v) });
     });
-    row.reports.push({ date: date, submittedAt: rep.submittedAt || '', details: details });
+    row.reports.push({ id: String(rep.id || ''), date: date, submittedAt: rep.submittedAt || '', details: details });
     tallies.forEach(function (t) {
       t.items.forEach(function (it) {
         var v = rep[t.key];
@@ -591,13 +609,13 @@ function defaultBatchTables_(batchName, startDate) {
       { key: 'stageName', value: 'Stage 1 - Akademi', description: 'Nama stage' },
       { key: 'startDate', value: startDate, description: 'Hari pertama Stage 1 (yyyy-MM-dd)' },
       { key: 'durationDays', value: '30', description: 'Lama stage (hari)' },
-      { key: 'formTitle', value: 'Laporan Harian Stage 1 - Akademi BTC', description: 'Judul form' },
-      { key: 'formDescription', value: 'Isi laporan setiap selesai mengerjakan unit.', description: 'Keterangan di bawah judul form' },
+      { key: 'formTitle', value: 'Aktivitas Harian Stage 1 - Akademi BTC', description: 'Judul form' },
+      { key: 'formDescription', value: 'Isi aktivitas setiap selesai mengerjakan unit.', description: 'Keterangan di bawah judul form' },
       { key: 'formOpen', value: 'true', description: 'true = form bisa diisi, false = form ditutup' },
-      { key: 'successMessage', value: 'Terima kasih, laporan tersimpan.', description: 'Pesan setelah submit' },
+      { key: 'successMessage', value: 'Terima kasih, aktivitas tersimpan.', description: 'Pesan setelah submit' },
       { key: 'dashboardTitle', value: 'Dashboard Santri', description: 'Judul dashboard' },
       { key: 'dashboardNotice', value: '', description: 'Pengumuman di atas dashboard (opsional)' },
-      { key: 'showRecentReports', value: 'true', description: 'Tampilkan riwayat laporan di dashboard' },
+      { key: 'showRecentReports', value: 'true', description: 'Tampilkan riwayat aktivitas di dashboard' },
       { key: 'bannerFileId', value: '', description: 'File banner di Drive (diatur dari tab Pengaturan > Banner)' },
       { key: 'schemaVersion', value: String(SCHEMA_VERSION), description: 'Versi struktur data (jangan diubah)' }
     ],
@@ -608,9 +626,9 @@ function defaultBatchTables_(batchName, startDate) {
     ],
     Students: [],
     FormFields: [
-      { key: 'date', label: 'Tanggal Pengerjaan', type: 'date', options: '', required: true, order: 1, section: 'Data Laporan', help: '', active: true },
-      { key: 'student', label: 'Nama Santri', type: 'student', options: '', required: true, order: 2, section: 'Data Laporan', help: '', active: true },
-      { key: 'category', label: 'Jenis Perangkat', type: 'category', options: '', required: true, order: 3, section: 'Data Laporan', help: '', active: true },
+      { key: 'date', label: 'Tanggal Pengerjaan', type: 'date', options: '', required: true, order: 1, section: 'Data Aktivitas', help: '', active: true },
+      { key: 'student', label: 'Nama Santri', type: 'student', options: '', required: true, order: 2, section: 'Data Aktivitas', help: '', active: true },
+      { key: 'category', label: 'Jenis Perangkat', type: 'category', options: '', required: true, order: 3, section: 'Data Aktivitas', help: '', active: true },
       { key: 'device_model', label: 'Merk / Tipe Perangkat', type: 'text', options: '', required: false, order: 5, section: 'Detail Pekerjaan', help: 'Contoh: Samsung A12, iPhone 11, Lenovo T480', active: true },
       { key: 'work_type', label: 'Jenis Pekerjaan', type: 'checkbox', options: 'Diagnosa\nGanti LCD\nGanti Baterai\nGanti Konektor Cas\nSoftware / Flashing\nLainnya', required: false, order: 6, section: 'Detail Pekerjaan', help: '', active: true },
       { key: 'notes', label: 'Catatan / Kendala', type: 'textarea', options: '', required: false, order: 7, section: 'Detail Pekerjaan', help: '', active: true },
@@ -632,6 +650,6 @@ if (typeof module !== 'undefined') {
     toBool_: toBool_, toNum_: toNum_, slugKey_: slugKey_, dayNumber_: dayNumber_, interpolateMilestone_: interpolateMilestone_,
     computeDashboard_: computeDashboard_, validateReport_: validateReport_, sanitizeTable_: sanitizeTable_,
     defaultBatchTables_: defaultBatchTables_, migrateFormFields_: migrateFormFields_, computeRecap_: computeRecap_,
-    stagesFrom_: stagesFrom_, stageForPassword_: stageForPassword_, publicStages_: publicStages_, defaultStage0Fields_: defaultStage0Fields_, STAGE_TABLES: STAGE_TABLES, answerHasOption_: answerHasOption_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
+    stagesFrom_: stagesFrom_, REQUEST_KINDS: REQUEST_KINDS, TABLE_HEADERS: TABLE_HEADERS, renameLaporan_: renameLaporan_, renameLaporanRows_: renameLaporanRows_, stageForPassword_: stageForPassword_, publicStages_: publicStages_, defaultStage0Fields_: defaultStage0Fields_, STAGE_TABLES: STAGE_TABLES, answerHasOption_: answerHasOption_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
   };
 }

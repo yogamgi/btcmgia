@@ -50,7 +50,8 @@ function doPost(e) {
     // Same functions the HtmlService pages reach through google.script.run; every Dev one checks the Dev token.
     var fns = {
       apiGetPublic: apiGetPublic, apiGetStage: apiGetStage, apiGuestLogin: apiGuestLogin, apiSubmitReport: apiSubmitReport,
-      apiGetDashboard: apiGetDashboard, apiGetBanner: apiGetBanner,
+      apiGetDashboard: apiGetDashboard, apiGetBanner: apiGetBanner, apiRequestChange: apiRequestChange,
+      apiDevGetLog: apiDevGetLog, apiDevResolveLog: apiDevResolveLog,
       apiDevLogin: apiDevLogin, apiDevLogout: apiDevLogout, apiDevChangePassword: apiDevChangePassword,
       apiDevGetAll: apiDevGetAll, apiDevSaveTable: apiDevSaveTable, apiDevSaveReport: apiDevSaveReport,
       apiDevDeleteReport: apiDevDeleteReport, apiDevSetBanner: apiDevSetBanner, apiDevCreateBatch: apiDevCreateBatch,
@@ -320,6 +321,15 @@ function migrateBatch_(ss) {
     }
     ensureHeaders_(getOrCreateSheet_(ss, 'S0_Reports'), reportHeaders_(readTable_(ss, 'S0_FormFields').rows));
   }
+  if (version < 4) {
+    settingsRows = renameLaporanRows_(settingsRows, ['value', 'description']);
+    ['FormFields', 'S0_FormFields'].forEach(function (n) {
+      var t = readTable_(ss, n);
+      if (t.rows.length) writeTable_(ss, n, t.headers, renameLaporanRows_(t.rows, ['label', 'section', 'help', 'options']));
+    });
+    var stg = readTable_(ss, 'Stages');
+    if (stg.rows.length) writeTable_(ss, 'Stages', TABLE_HEADERS.Stages, sanitizeTable_('Stages', renameLaporanRows_(stg.rows, ['name', 'description']), {}).rows);
+  }
   var found = false;
   settingsRows.forEach(function (r) { if (r.key === 'schemaVersion') { r.value = String(SCHEMA_VERSION); found = true; } });
   if (!found) settingsRows.push({ key: 'schemaVersion', value: String(SCHEMA_VERSION), description: 'Versi struktur data (jangan diubah)' });
@@ -456,7 +466,7 @@ function stageForm_(data, st, archived) {
     return {
       settings: {
         formTitle: s.formTitle || st.name, formDescription: s.formDescription || '',
-        successMessage: s.successMessage || 'Terima kasih, laporan tersimpan.',
+        successMessage: s.successMessage || 'Terima kasih, aktivitas tersimpan.',
         formOpen: !archived && (s.formOpen === undefined ? true : toBool_(s.formOpen)),
         dashboardTitle: s.dashboardTitle || 'Dashboard Santri'
       },
@@ -465,7 +475,7 @@ function stageForm_(data, st, archived) {
     };
   }
   return {
-    settings: { formTitle: st.name, formDescription: st.description, successMessage: 'Terima kasih, laporan tersimpan.',
+    settings: { formTitle: st.name, formDescription: st.description, successMessage: 'Terima kasih, aktivitas tersimpan.',
       formOpen: !archived, dashboardTitle: 'Rekap ' + st.name },
     fields: publicFields_(stageFields_(data, st.key)),
     categories: []
@@ -567,8 +577,80 @@ function apiSubmitReport(batchId, answers, stageKey, auth) {
     row.studentName = result.studentName;
     var line = headers.map(function (h) { return row[h] == null ? '' : String(row[h]); });
     sh.getRange(sh.getLastRow() + 1, 1, 1, headers.length).setNumberFormat('@').setValues([line]);
+    appendLog_(ss, { kind: 'activity', stage: stageKey, student: who.id, studentName: who.name, reportId: row.id,
+      message: 'Aktivitas baru dikirim.' });
     return { ok: true, id: row.id };
   });
+}
+
+// ---------- Log: new activities, change requests from santri, Dev edits ----------
+
+/** Appends one Log row. Not through writeTable_, so the cached config stays valid. */
+function appendLog_(ss, e) {
+  try {
+    var sh = getOrCreateSheet_(ss, 'Log');
+    var headers = ensureHeaders_(sh, TABLE_HEADERS.Log);
+    e.id = e.id || Utilities.getUuid().slice(0, 13);
+    e.time = now_();
+    e.status = e.status || '';
+    var line = headers.map(function (h) { return e[h] == null ? '' : String(e[h]); });
+    sh.getRange(sh.getLastRow() + 1, 1, 1, headers.length).setNumberFormat('@').setValues([line]);
+    return e;
+  } catch (err) {
+    // A log failure must never block saving the activity itself.
+    return null;
+  }
+}
+
+/**
+ * Santri asks the developer to correct or delete one of their own activities.
+ * req: { reportId, kind: 'koreksi' | 'hapus', note }.
+ */
+function apiRequestChange(batchId, stageKey, auth, req) {
+  var meta = resolveBatch_(batchId);
+  var data = batchConfig_(meta);
+  var who = requireGuest_(data, stageKey, auth);
+  req = req || {};
+  var kind = REQUEST_KINDS[req.kind] ? req.kind : 'koreksi';
+  var note = String(req.note || '').trim().slice(0, 1000);
+  if (kind === 'koreksi' && !note) throw new Error('Tulis apa yang perlu dikoreksi.');
+  var t = devStageTables_(stageKey);
+  var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+  var rows = readTable_(ss, t.reports).rows;
+  var rep = rows.filter(function (x) { return String(x.id) === String(req.reportId); })[0];
+  if (!rep || String(rep.student) !== String(who.id)) throw new Error('Aktivitas tidak ditemukan.');
+  return withLock_(function () {
+    var e = appendLog_(ss, { kind: 'request', stage: stageKey, student: who.id, studentName: who.name, reportId: rep.id,
+      message: REQUEST_KINDS[kind] + ' (aktivitas ' + (rep.date || rep.submittedAt || '') + ')' + (note ? ': ' + note : ''), status: 'open' });
+    if (!e) throw new Error('Permintaan belum terkirim, coba lagi.');
+    return { ok: true, id: e.id };
+  });
+}
+
+/** Dev bell: open requests (oldest first) plus the latest 100 log entries (newest first). */
+function apiDevGetLog(token, batchId) {
+  requireDev_(token);
+  var meta = resolveBatch_(batchId);
+  var rows = readTable_(SpreadsheetApp.openById(meta.spreadsheetId), 'Log').rows;
+  var open = rows.filter(function (r) { return r.kind === 'request' && r.status === 'open'; });
+  return { open: open, openCount: open.length, recent: rows.slice(-100).reverse() };
+}
+
+/** Marks a request done (or reopens it with done = false). */
+function apiDevResolveLog(token, batchId, id, done) {
+  requireDev_(token);
+  var meta = resolveBatch_(batchId);
+  var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+  withLock_(function () {
+    var sh = getOrCreateSheet_(ss, 'Log');
+    var values = sh.getDataRange().getValues();
+    var head = values[0].map(String), idCol = head.indexOf('id'), stCol = head.indexOf('status');
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][idCol]) === String(id)) { sh.getRange(i + 1, stCol + 1).setValue(done === false ? 'open' : 'done'); return; }
+    }
+    throw new Error('Catatan log tidak ditemukan.');
+  });
+  return apiDevGetLog(token, batchId);
 }
 
 function saveUpload_(meta, file, studentName) {
@@ -683,6 +765,8 @@ function apiDevGetAll(token, batchId) {
   migrateBatch_(ss);
   var tables = {};
   EDITABLE_TABLES.concat(['Reports', 'S0_Reports']).forEach(function (n) { tables[n] = readTable_(ss, n); });
+  // Stage rows with defaults filled in (e.g. passwords of stages saved before passwords existed).
+  tables.Stages = { headers: TABLE_HEADERS.Stages, rows: sanitizeTable_('Stages', tables.Stages.rows, {}).rows };
   return {
     batches: listBatches_(),
     batch: meta,
@@ -730,7 +814,7 @@ function apiDevSaveTable(token, batchId, name, rows) {
 
 function devStageTables_(stageKey) {
   var t = STAGE_TABLES[stageKey || 'stage1'];
-  if (!t) throw new Error('Stage ini belum punya laporan.');
+  if (!t) throw new Error('Stage ini belum punya aktivitas.');
   return t;
 }
 
@@ -752,7 +836,7 @@ function apiDevSaveReport(token, batchId, row, stageKey) {
     var rowIndex = -1;
     if (row.id) {
       for (var i = 1; i < values.length; i++) if (String(values[i][idCol]) === String(row.id)) { rowIndex = i + 1; break; }
-      if (rowIndex < 0) throw new Error('Laporan tidak ditemukan: ' + row.id);
+      if (rowIndex < 0) throw new Error('Aktivitas tidak ditemukan: ' + row.id);
       var existing = values[rowIndex - 1];
       var merged = headers.map(function (h, j) {
         if (h === 'id' || h === 'submittedAt') return String(normalizeCell_(existing[j]));
@@ -760,12 +844,14 @@ function apiDevSaveReport(token, batchId, row, stageKey) {
         return row[h] === undefined ? String(normalizeCell_(existing[j])) : String(row[h] == null ? '' : row[h]);
       });
       sh.getRange(rowIndex, 1, 1, headers.length).setNumberFormat('@').setValues([merged]);
+      appendLog_(ss, { kind: 'dev', stage: stageKey, student: row.student || '', studentName: row.studentName || '', reportId: row.id, message: 'Developer mengubah aktivitas.' });
     } else {
       row.id = Utilities.getUuid().slice(0, 13);
       row.submittedAt = now_();
       row.updatedAt = '';
       var line = headers.map(function (h) { return row[h] == null ? '' : String(row[h]); });
       sh.getRange(sh.getLastRow() + 1, 1, 1, headers.length).setNumberFormat('@').setValues([line]);
+      appendLog_(ss, { kind: 'dev', stage: stageKey, student: row.student || '', studentName: row.studentName || '', reportId: row.id, message: 'Developer menambah aktivitas.' });
     }
   });
   return apiDevGetAll(token, meta.id);
@@ -779,15 +865,20 @@ function apiDevDeleteReport(token, batchId, ids, stageKey) {
   var wanted = {};
   (Array.isArray(ids) ? ids : [ids]).forEach(function (id) { wanted[String(id)] = true; });
   withLock_(function () {
-    var sh = getOrCreateSheet_(SpreadsheetApp.openById(meta.spreadsheetId), t.reports);
+    var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+    var sh = getOrCreateSheet_(ss, t.reports);
     var values = sh.getDataRange().getValues();
-    var idCol = values[0].map(String).indexOf('id');
+    var head = values[0].map(String), idCol = head.indexOf('id'), stCol = head.indexOf('student'), nmCol = head.indexOf('studentName');
     var found = 0;
     // Bottom-up so earlier row numbers stay valid while deleting.
     for (var i = values.length - 1; i >= 1; i--) {
-      if (wanted[String(values[i][idCol])]) { sh.deleteRow(i + 1); found++; }
+      if (wanted[String(values[i][idCol])]) {
+        appendLog_(ss, { kind: 'dev', stage: stageKey, student: stCol >= 0 ? values[i][stCol] : '', studentName: nmCol >= 0 ? values[i][nmCol] : '',
+          reportId: values[i][idCol], message: 'Developer menghapus aktivitas.' });
+        sh.deleteRow(i + 1); found++;
+      }
     }
-    if (!found) throw new Error('Laporan tidak ditemukan.');
+    if (!found) throw new Error('Aktivitas tidak ditemukan.');
   });
   return apiDevGetAll(token, meta.id);
 }

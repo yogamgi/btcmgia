@@ -51,12 +51,12 @@
         <button class="btn sm" data-logout>Keluar</button>
       </div>
       <nav class="tabs" id="tabs">
-        <button data-tab="form" class="active">Isi Laporan</button>
+        <button data-tab="form" class="active">Isi Aktivitas</button>
         <button data-tab="dashboard">Dashboard</button>
       </nav>
       <section data-panel="form">
         <div class="card" style="max-width:720px">
-          <h2 id="formTitle">Laporan</h2>
+          <h2 id="formTitle">Aktivitas</h2>
           <p class="muted" id="formDesc"></p>
           <div id="formMsg"></div>
           <form id="reportForm" novalidate></form>
@@ -151,6 +151,8 @@
       if (same && !document.getElementById('stageView').classList.contains('hidden')) return; // keep what the santri is typing
       form = r.form;
       dashState.selected = auth.student; // dashboard opens on the santri's own reports
+      dashState.requestFor = String(auth.student);
+      dashState.onRequest = openRequest;
       showOnly('stageView');
       document.getElementById('stageTitle').textContent = stage.name;
       document.getElementById('whoAmI').textContent = auth.studentName;
@@ -248,8 +250,8 @@
         if (f.section && f.section !== section) { section = f.section; html += '<h3>' + esc(section) + '</h3>'; }
         html += fieldHtml(f);
       });
-      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim laporan</button>' +
-        '<button class="btn" type="submit" id="anotherBtn" data-another title="Simpan laporan ini lalu buka form kosong">Masukan laporan lainnya</button></div>';
+      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim aktivitas</button>' +
+        '<button class="btn" type="submit" id="anotherBtn" data-another title="Simpan aktivitas ini lalu buka form kosong">Masukan aktivitas lainnya</button></div>';
       el.innerHTML = html;
     }
 
@@ -304,7 +306,7 @@
       box.innerHTML = /^video\//.test(file.type) ? '<video src="' + url + '" muted controls></video>' : '<img src="' + url + '" alt="">';
     });
 
-    /** Shows the blank form again, e.g. after "Masukan laporan lainnya". */
+    /** Shows the blank form again, e.g. after "Masukan aktivitas lainnya". */
     function blankForm(notice) {
       renderForm();
       if (notice) document.getElementById('formMsg').innerHTML = notice;
@@ -317,7 +319,7 @@
 
     document.getElementById('reportForm').addEventListener('submit', function (e) {
       e.preventDefault();
-      // "Masukan laporan lainnya": save this report, then reopen the same form blank.
+      // "Masukan aktivitas lainnya": save this report, then reopen the same form blank.
       var another = !!(e.submitter && e.submitter.hasAttribute('data-another'));
       var el = e.target, answers = {}, missing = [], pending = [];
       form.fields.forEach(function (f) {
@@ -352,10 +354,10 @@
       }).then(function () {
         delete dash[stageKey];
         var ok = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
-        if (another) return blankForm(ok + '<p class="muted">Laporan sebelumnya tersimpan. Silakan isi laporan berikutnya.</p>');
+        if (another) return blankForm(ok + '<p class="muted">Aktivitas sebelumnya tersimpan. Silakan isi aktivitas berikutnya.</p>');
         // Like Google Forms: a thank-you screen with a way to send another report.
         el.innerHTML = '';
-        msg.innerHTML = ok + '<div class="row"><button class="btn primary" type="button" data-new-report>Masukan laporan lainnya</button></div>';
+        msg.innerHTML = ok + '<div class="row"><button class="btn primary" type="button" data-new-report>Masukan aktivitas lainnya</button></div>';
         msg.scrollIntoView({ behavior: 'smooth' });
       }).catch(function (err) {
         if (loginExpired(err)) return;
@@ -376,6 +378,33 @@
         dash[key] = d;
         if (stage && stage.key === key) renderAnyDashboard(el, d, dashState);
       }).catch(function (e) { if (!loginExpired(e)) el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
+    }
+
+    /** "Ajukan perubahan": the santri asks the developer to correct or delete one of their own activities. */
+    function openRequest(rep) {
+      var key = stage.key;
+      var m = modal('Ajukan perubahan', '<p class="muted">Aktivitas tanggal ' + esc(rep.date || '–') + '. Permintaan ini dikirim ke developer untuk dicek.</p>' +
+        '<div class="field" style="margin-bottom:14px"><span class="lbl" style="font-weight:600">Jenis perubahan</span>' +
+        '<label class="choice"><input type="radio" name="reqKind" value="koreksi" checked> Koreksi data</label>' +
+        '<label class="choice"><input type="radio" name="reqKind" value="hapus"> Hapus aktivitas</label></div>' +
+        '<label class="field"><span class="lbl">Catatan</span><textarea id="reqNote" rows="3" maxlength="1000" placeholder="Contoh: jumlah unit seharusnya 2, bukan 3."></textarea></label>' +
+        '<div id="reqMsg"></div><div class="row"><span class="spacer"></span><button class="btn" type="button" data-close>Batal</button>' +
+        '<button class="btn primary" type="button" id="reqSend">Kirim permintaan</button></div>');
+      var send = m.el.querySelector('#reqSend'), msg = m.el.querySelector('#reqMsg');
+      send.addEventListener('click', function () {
+        var kind = m.el.querySelector('input[name="reqKind"]:checked').value;
+        var note = m.el.querySelector('#reqNote').value.trim();
+        if (kind === 'koreksi' && !note) { msg.innerHTML = '<div class="notice err">Tulis apa yang perlu dikoreksi.</div>'; return; }
+        send.disabled = true; send.textContent = 'Mengirim…';
+        call('apiRequestChange', auth.batchId, key, creds(), { reportId: rep.reportId, kind: kind, note: note }).then(function () {
+          m.el.querySelector('.modal-body').innerHTML = '<div class="notice ok">Permintaan terkirim. Developer akan mengecek dan memperbaiki aktivitas ini.</div>' +
+            '<div class="row"><span class="spacer"></span><button class="btn primary" type="button" data-close>Tutup</button></div>';
+        }).catch(function (e) {
+          if (loginExpired(e)) { m.close(); return; }
+          send.disabled = false; send.textContent = 'Kirim permintaan';
+          msg.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+        });
+      });
     }
 
     /** The stage password changed or the santri was removed: back to the login panel. */

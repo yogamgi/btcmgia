@@ -200,6 +200,7 @@ test('stage 0 submission and recap: activities with commas are tallied correctly
   assert.strictEqual(abdul.count, 2);
   assert.strictEqual(abdul.last, '2026-10-21');
   assert.strictEqual(abdul.reports[0].date, '2026-10-21');
+  assert.strictEqual(abdul.reports[0].id, 'b'); // "Ajukan perubahan" needs the activity id
   const act = r.tallies.find(t => t.key === 'activities').items.map(i => i.count);
   assert.deepStrictEqual(act, [1, 0, 1, 1]);
   assert.deepStrictEqual(r.tallies.find(t => t.key === 'branch').items.map(i => i.count), [1, 1, 0]);
@@ -222,4 +223,15 @@ test('stage passwords: defaults, lookup, kept on save, duplicates rejected, hidd
   assert.strictEqual(saved[1].password, 'btc4stage1');
   assert.throws(() => L.sanitizeTable_('Stages', [{ key: 'stage0', password: 'x' }, { key: 'stage1', password: 'x' }], {}), /berbeda/);
   assert.ok(L.publicStages_(st).every(s => !('password' in s) && !('bannerFileId' in s)));
+});
+
+test('Laporan wording migrates to Aktivitas', () => {
+  assert.strictEqual(L.renameLaporan_('Kirim laporan · Laporan harian · LAPORAN'), 'Kirim aktivitas · Aktivitas harian · AKTIVITAS');
+  const rows = L.renameLaporanRows_([{ key: 'x', label: 'Tanggal laporan', order: 3 }], ['label']);
+  assert.deepStrictEqual(rows, [{ key: 'x', label: 'Tanggal aktivitas', order: 3 }]);
+});
+
+test('Log sheet and change-request kinds exist', () => {
+  assert.ok(L.TABLE_HEADERS.Log.includes('status'));
+  assert.deepStrictEqual(Object.keys(L.REQUEST_KINDS), ['koreksi', 'hapus']);
 });
