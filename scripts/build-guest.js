@@ -13,13 +13,23 @@ const read = n => fs.readFileSync(path.join(src, n + '.html'), 'utf8');
 // Replaces google.script.run. Sent without cookies and as text/plain, so no Google login and no CORS preflight.
 const apiShim = `<script>
   var API_URL = ${JSON.stringify(API_URL)};
-  function call(fn) {
-    var args = Array.prototype.slice.call(arguments, 1);
-    return fetch(API_URL, { method: 'POST', credentials: 'omit', redirect: 'follow',
+  function rawCall(fn, args) {
+    var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = ctl && setTimeout(function () { ctl.abort(); }, 90000);
+    function transient(msg) { var e = new Error(msg); e.transient = true; return e; }
+    return fetch(API_URL, { method: 'POST', credentials: 'omit', redirect: 'follow', signal: ctl ? ctl.signal : undefined,
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args }) })
-      .then(function (r) { if (!r.ok) throw new Error('Server tidak merespons (' + r.status + '). Coba lagi.'); return r.json(); },
-        function () { throw new Error('Tidak ada koneksi ke server. Periksa internet lalu coba lagi.'); })
-      .then(function (res) { if (!res.ok) throw new Error(res.error); return res.result; });
+      .then(function (r) {
+        if (!r.ok) throw transient('Server tidak merespons (' + r.status + ').');
+        return r.json().catch(function () { throw transient('Jawaban server tidak lengkap.'); });
+      }, function () { throw transient('Tidak ada koneksi ke server.'); })
+      .then(function (res) {
+        clearTimeout(timer);
+        if (res.ok) return res.result;
+        var err = new Error(res.error);
+        err.transient = /timed? ?out|too many|try again|Service (error|invoked)|Internal error|Server error|Lock timeout|unavailable/i.test(res.error);
+        throw err;
+      }, function (e) { clearTimeout(timer); throw e; });
   }
 </script>`;
 

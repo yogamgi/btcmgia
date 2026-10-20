@@ -49,7 +49,7 @@ function doPost(e) {
     var req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     // Same functions the HtmlService pages reach through google.script.run; every Dev one checks the Dev token.
     var fns = {
-      apiGetPublic: apiGetPublic, apiGuestLogin: apiGuestLogin, apiSubmitReport: apiSubmitReport,
+      apiGetPublic: apiGetPublic, apiGetStage: apiGetStage, apiGuestLogin: apiGuestLogin, apiSubmitReport: apiSubmitReport,
       apiGetDashboard: apiGetDashboard, apiGetBanner: apiGetBanner,
       apiDevLogin: apiDevLogin, apiDevLogout: apiDevLogout, apiDevChangePassword: apiDevChangePassword,
       apiDevGetAll: apiDevGetAll, apiDevSaveTable: apiDevSaveTable, apiDevSaveReport: apiDevSaveReport,
@@ -84,6 +84,62 @@ function isOwner_() {
 // ---------------------------------------------------------------- helpers
 
 function props_() { return PropertiesService.getScriptProperties(); }
+
+// ---------------------------------------------------------------- cache
+// Opening spreadsheets is the slow part of every request (several seconds), so the registry and each batch's
+// configuration (everything except reports) are cached. Any write through writeTable_/saveBatches_ bumps
+// CFG_VER, which changes every cache key, so guests never see stale settings after a Dev edit.
+// Entries also expire after CACHE_SECONDS in case someone edits the spreadsheet by hand.
+var CACHE_SECONDS = 10 * 60;
+var CACHE_CHUNK = 90 * 1024; // CacheService values are limited to 100 KB, so bigger JSON is split
+
+var cfgVer_ = null;
+function cfgVersion_() {
+  if (cfgVer_ == null) cfgVer_ = props_().getProperty('CFG_VER') || '0';
+  return cfgVer_;
+}
+function bumpConfig_() {
+  cfgVer_ = String(Date.now());
+  props_().setProperty('CFG_VER', cfgVer_);
+}
+
+function cacheGet_(key) {
+  try {
+    var c = CacheService.getScriptCache();
+    var head = c.get(key);
+    if (head == null) return null;
+    var n = Number(head);
+    if (!(n > 0)) return JSON.parse(head);
+    var keys = [];
+    for (var i = 0; i < n; i++) keys.push(key + '#' + i);
+    var parts = c.getAll(keys), json = '';
+    for (var j = 0; j < n; j++) { if (parts[keys[j]] == null) return null; json += parts[keys[j]]; }
+    return JSON.parse(json);
+  } catch (e) {
+    return null; // a cache problem must never break a request; the caller reads the sheet instead
+  }
+}
+
+function cachePut_(key, obj, seconds) {
+  try {
+    var c = CacheService.getScriptCache(), json = JSON.stringify(obj);
+    if (json.length <= CACHE_CHUNK) { c.put(key, json, seconds); return; }
+    var parts = {}, n = Math.ceil(json.length / CACHE_CHUNK);
+    for (var i = 0; i < n; i++) parts[key + '#' + i] = json.slice(i * CACHE_CHUNK, (i + 1) * CACHE_CHUNK);
+    c.putAll(parts, seconds);
+    c.put(key, String(n), seconds);
+  } catch (e) { /* too big or cache unavailable: just not cached */ }
+}
+
+/** Batch configuration (no reports) from cache, reading the spreadsheet only on a miss. */
+function batchConfig_(meta) {
+  var key = 'cfg:' + meta.spreadsheetId + ':' + cfgVersion_();
+  var data = cacheGet_(key);
+  if (data) return data;
+  data = loadBatchData_(SpreadsheetApp.openById(meta.spreadsheetId));
+  cachePut_(key, data, CACHE_SECONDS);
+  return data;
+}
 
 function tz_() { return Session.getScriptTimeZone() || 'Asia/Jakarta'; }
 
@@ -153,6 +209,7 @@ function readTable_(ss, name) {
 
 /** Replaces a whole sheet. Cells are stored as plain text so dates/ids never get auto-converted. */
 function writeTable_(ss, name, headers, rows) {
+  bumpConfig_();
   var sh = getOrCreateSheet_(ss, name);
   sh.clearContents();
   var data = [headers].concat(rows.map(function (r) {
@@ -189,6 +246,15 @@ function getOrCreateSubfolder_(parent, name) {
 // ---------------------------------------------------------------- batches
 
 function listBatches_() {
+  var key = 'batches:' + cfgVersion_();
+  var cached = cacheGet_(key);
+  if (cached) return cached;
+  var list = readBatches_();
+  cachePut_(key, list, CACHE_SECONDS);
+  return list;
+}
+
+function readBatches_() {
   var sh = getRegistrySheet_();
   var values = sh.getDataRange().getValues();
   var headers = values[0].map(String);
@@ -203,6 +269,7 @@ function listBatches_() {
 }
 
 function saveBatches_(list) {
+  bumpConfig_();
   var sh = getRegistrySheet_();
   sh.clearContents();
   var data = [REGISTRY_HEADERS].concat(list.map(function (b) {
@@ -369,42 +436,69 @@ function publicFields_(fields) {
 }
 
 /** Everything the Guest page needs: the stages, and the form of every open stage. Locked stages send no form. */
+/** Public URL of a Drive image shared with "anyone with the link" (served by Google's image CDN, no script call). */
+function driveImageUrl_(fileId) {
+  return fileId ? 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fileId) + '=w2000' : '';
+}
+
+/** Main banner (key '') and each stage's own banner, as direct image URLs. */
+function bannerUrls_(data) {
+  var out = { '': driveImageUrl_(data.settings.bannerFileId) };
+  data.stages.forEach(function (st) { out[st.key] = driveImageUrl_(st.bannerFileId) || out['']; });
+  return out;
+}
+
+/** The form a guest sees for one open stage, or null when it is locked or has no form yet. */
+function stageForm_(data, st, archived) {
+  if (st.status !== 'open' || !st.ready) return null;
+  var s = data.settings;
+  if (st.key === 'stage1') {
+    return {
+      settings: {
+        formTitle: s.formTitle || st.name, formDescription: s.formDescription || '',
+        successMessage: s.successMessage || 'Terima kasih, laporan tersimpan.',
+        formOpen: !archived && (s.formOpen === undefined ? true : toBool_(s.formOpen)),
+        dashboardTitle: s.dashboardTitle || 'Dashboard Santri'
+      },
+      fields: publicFields_(data.fields),
+      categories: activeCategories_(data.categories).map(function (c) { return { key: c.key, label: c.label }; })
+    };
+  }
+  return {
+    settings: { formTitle: st.name, formDescription: st.description, successMessage: 'Terima kasih, laporan tersimpan.',
+      formOpen: !archived, dashboardTitle: 'Rekap ' + st.name },
+    fields: publicFields_(stageFields_(data, st.key)),
+    categories: []
+  };
+}
+
+/** What the login page needs: batches, santri names, stage names and banners. Forms come per stage (apiGetStage). */
 function apiGetPublic(batchId) {
   var meta = resolveBatch_(batchId);
-  var data = loadBatchData_(SpreadsheetApp.openById(meta.spreadsheetId));
-  var s = data.settings;
-  var archived = meta.status === 'archived';
-  var forms = {};
-  data.stages.forEach(function (st) {
-    if (st.status !== 'open' || !st.ready) return;
-    if (st.key === 'stage1') {
-      forms.stage1 = {
-        settings: {
-          formTitle: s.formTitle || st.name, formDescription: s.formDescription || '',
-          successMessage: s.successMessage || 'Terima kasih, laporan tersimpan.',
-          formOpen: !archived && (s.formOpen === undefined ? true : toBool_(s.formOpen)),
-          dashboardTitle: s.dashboardTitle || 'Dashboard Santri'
-        },
-        fields: publicFields_(data.fields),
-        categories: activeCategories_(data.categories).map(function (c) { return { key: c.key, label: c.label }; })
-      };
-    } else {
-      forms[st.key] = {
-        settings: { formTitle: st.name, formDescription: st.description, successMessage: 'Terima kasih, laporan tersimpan.',
-          formOpen: !archived, dashboardTitle: 'Rekap ' + st.name },
-        fields: publicFields_(stageFields_(data, st.key)),
-        categories: []
-      };
-    }
-  });
+  var data = batchConfig_(meta);
   return {
     batches: publicBatchList_(),
     batch: { id: meta.id, name: meta.name, status: meta.status },
-    batchName: s.batchName || meta.name,
+    batchName: data.settings.batchName || meta.name,
     stages: publicStages_(data.stages),
-    forms: forms,
+    banners: bannerUrls_(data),
     students: activeStudents_(data.students).map(function (st) { return { id: String(st.id), name: st.name, nickname: st.nickname || '' }; })
       .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }),
+    today: today_()
+  };
+}
+
+/** One stage for the logged-in santri: its status and, when open, its form. */
+function apiGetStage(batchId, stageKey, auth) {
+  var meta = resolveBatch_(batchId);
+  var data = batchConfig_(meta);
+  var who = requireGuest_(data, stageKey, auth);
+  var st = stageOf_(data, stageKey, true);
+  return {
+    stage: publicStages_([st])[0],
+    form: stageForm_(data, st, meta.status === 'archived'),
+    banner: bannerUrls_(data)[st.key],
+    student: { id: String(who.id), name: who.name },
     today: today_()
   };
 }
@@ -415,7 +509,7 @@ function apiGetPublic(batchId) {
  */
 function apiGuestLogin(batchId, studentId, password) {
   var meta = resolveBatch_(batchId);
-  var data = loadBatchData_(SpreadsheetApp.openById(meta.spreadsheetId));
+  var data = batchConfig_(meta);
   var st = activeStudents_(data.students).filter(function (x) { return String(x.id) === String(studentId); })[0];
   if (!st) throw new Error('Pilih nama santri dulu.');
   var stage = stageForPassword_(data.stages, password);
@@ -441,8 +535,7 @@ function apiSubmitReport(batchId, answers, stageKey, auth) {
   stageKey = stageKey || 'stage1';
   var meta = resolveBatch_(batchId);
   if (meta.status === 'archived') throw new Error('Batch ini sudah ditutup.');
-  var ss = SpreadsheetApp.openById(meta.spreadsheetId);
-  var data = loadBatchData_(ss);
+  var data = batchConfig_(meta);
   var who = requireGuest_(data, stageKey, auth);
   answers = answers || {};
   answers.student = String(who.id);
@@ -457,11 +550,18 @@ function apiSubmitReport(batchId, answers, stageKey, auth) {
     result.values[key] = saveUpload_(meta, answers[key], result.studentName);
   });
 
+  // The page sends its own id per report and retries on a bad connection; the same id is only stored once.
+  var clientId = String(answers.clientId || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40);
+  var ss = SpreadsheetApp.openById(meta.spreadsheetId);
   return withLock_(function () {
     var sh = getOrCreateSheet_(ss, STAGE_TABLES[stageKey].reports);
     var headers = ensureHeaders_(sh, reportHeaders_(activeFields_(fields)));
+    if (clientId && sh.getLastRow() > 1) {
+      var ids = sh.getRange(2, headers.indexOf('id') + 1, sh.getLastRow() - 1, 1).getValues();
+      for (var i = ids.length - 1; i >= 0; i--) if (String(ids[i][0]) === clientId) return { ok: true, id: clientId, duplicate: true };
+    }
     var row = result.values;
-    row.id = Utilities.getUuid().slice(0, 13);
+    row.id = clientId || Utilities.getUuid().slice(0, 13);
     row.submittedAt = now_();
     row.updatedAt = '';
     row.studentName = result.studentName;
@@ -487,16 +587,18 @@ function saveUpload_(meta, file, studentName) {
  */
 function apiGetBanner(batchId, stageKey, exact) {
   var meta = resolveBatch_(batchId);
-  var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+  var data = batchConfig_(meta);
   var id = '';
   if (stageKey) {
-    var st = stagesFrom_(readTable_(ss, 'Stages').rows).filter(function (x) { return x.key === stageKey; })[0];
+    var st = data.stages.filter(function (x) { return x.key === stageKey; })[0];
     id = st ? st.bannerFileId : '';
   }
-  if (!id && !(stageKey && exact)) id = settingsToObject_(readTable_(ss, 'Settings').rows).bannerFileId;
+  if (!id && !(stageKey && exact)) id = data.settings.bannerFileId;
   if (!id) return '';
   try {
-    var blob = DriveApp.getFileById(String(id)).getBlob();
+    var file = DriveApp.getFileById(String(id));
+    shareImage_(file); // banners from before direct links: share once so the next load uses the fast URL
+    var blob = file.getBlob();
     return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
   } catch (e) {
     return ''; // file deleted or no longer accessible: just show no banner
@@ -505,8 +607,8 @@ function apiGetBanner(batchId, stageKey, exact) {
 
 function dashboardFor_(meta, stageKey, allowLocked, auth) {
   stageKey = stageKey || 'stage1';
+  var data = batchConfig_(meta);
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
-  var data = loadBatchData_(ss);
   if (!allowLocked) requireGuest_(data, stageKey, auth);
   var st = stageOf_(data, stageKey, allowLocked);
   if (!STAGE_TABLES[stageKey]) throw new Error('Dashboard untuk stage ini belum tersedia.');
@@ -690,6 +792,13 @@ function apiDevDeleteReport(token, batchId, ids, stageKey) {
   return apiDevGetAll(token, meta.id);
 }
 
+/** Lets anyone with the link view a banner, so pages load it straight from Google's image servers. */
+function shareImage_(file) {
+  try {
+    if (file.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) { /* sharing not allowed: pages fall back to apiGetBanner */ }
+}
+
 /**
  * file: { name, mimeType, data(base64) } to set the banner, or null to remove it.
  * stageKey: set that stage's own banner; omitted = the main banner (stage picker and fallback).
@@ -703,7 +812,9 @@ function apiDevSetBanner(token, batchId, file, stageKey) {
     var bytes = Utilities.base64Decode(String(file.data));
     if (bytes.length > 5 * 1024 * 1024) throw new Error('Banner terlalu besar (maks 5 MB).');
     var folder = getOrCreateSubfolder_(DriveApp.getFolderById(meta.folderId), 'Assets');
-    fileId = folder.createFile(Utilities.newBlob(bytes, String(file.mimeType), 'banner ' + now_() + ' ' + String(file.name || ''))).getId();
+    var created = folder.createFile(Utilities.newBlob(bytes, String(file.mimeType), 'banner ' + now_() + ' ' + String(file.name || '')));
+    shareImage_(created);
+    fileId = created.getId();
   }
   withLock_(function () {
     var ss = SpreadsheetApp.openById(meta.spreadsheetId);

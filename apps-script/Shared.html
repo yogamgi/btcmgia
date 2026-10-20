@@ -1,14 +1,41 @@
 <script>
-  /** Promise wrapper around google.script.run. */
-  function call(fn) {
-    var args = Array.prototype.slice.call(arguments, 1);
+  /** One server call through google.script.run (the static pages replace this with fetch). */
+  function rawCall(fn, args) {
     return new Promise(function (resolve, reject) {
       var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
-        reject(e && e.message ? e : new Error(String(e)));
+        var err = e && e.message ? e : new Error(String(e));
+        err.transient = /network|NetworkError|timed? ?out|too many|try again|Service (error|invoked)|Internal error|Server error|Lock timeout|unavailable/i.test(err.message);
+        reject(err);
       });
       r[fn].apply(r, args);
     });
   }
+
+  // Guest calls are safe to repeat (a resent report carries the same id and is stored once), so a dropped
+  // connection or a busy server is retried a few times before the page shows an error.
+  var RETRYABLE = ['apiGetPublic', 'apiGetStage', 'apiGuestLogin', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner', 'apiDevGetAll', 'apiDevGetDashboard'];
+
+  /** Promise wrapper for server calls: call('apiX', arg1, arg2) */
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    var tries = RETRYABLE.indexOf(fn) >= 0 ? 4 : 1;
+    function attempt(n) {
+      return rawCall(fn, args).catch(function (err) {
+        if (!err.transient || n + 1 >= tries) {
+          if (err.transient) err.message = 'Koneksi ke server bermasalah. Periksa internet lalu coba lagi.';
+          throw err;
+        }
+        return new Promise(function (r) { setTimeout(r, 1500 * Math.pow(2, n)); }).then(function () { return attempt(n + 1); });
+      });
+    }
+    return attempt(0);
+  }
+
+  /** Small per-device memory (last good data, login). Never required: private mode or full storage just skips it. */
+  var store = {
+    get: function (k) { try { return JSON.parse(localStorage.getItem('btc:' + k) || 'null'); } catch (e) { return null; } },
+    set: function (k, v) { try { v == null ? localStorage.removeItem('btc:' + k) : localStorage.setItem('btc:' + k, JSON.stringify(v)); } catch (e) {} }
+  };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -265,8 +292,27 @@
     return '<span class="pill none">–</span>';
   }
 
+  // Chart.js is only needed by the Stage 1 dashboard, so it is fetched the first time a chart is drawn.
+  var chartLib = null;
+  function loadChartLib() {
+    if (typeof Chart !== 'undefined') return Promise.resolve();
+    if (!chartLib) chartLib = new Promise(function (resolve, reject) {
+      var sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+      sc.onload = resolve;
+      sc.onerror = function () { chartLib = null; reject(new Error('Grafik gagal dimuat.')); };
+      document.head.appendChild(sc);
+    });
+    return chartLib;
+  }
+
   function drawCharts(d, selStudent) {
-    if (typeof Chart === 'undefined') return;
+    loadChartLib().then(function () {
+      if (document.getElementById('chartLine')) drawChartsNow(d, selStudent);
+    }).catch(function () { /* charts are extra; the tables already show the numbers */ });
+  }
+
+  function drawChartsNow(d, selStudent) {
     Object.keys(charts).forEach(function (k) { charts[k].destroy(); });
     charts = {};
     var accent = cssVar('--accent'), muted = cssVar('--muted'), border = cssVar('--border'), text = cssVar('--text');

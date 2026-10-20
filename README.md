@@ -28,9 +28,17 @@ Pages served by script.google.com fail with "Maaf, saat ini tidak dapat membuka 
 
 They call the web app's `doPost` JSON API with `fetch` (no cookies, `text/plain`), which works for everyone. Every Dev function still checks the Dev login token. After changing a page, run `npm run build` and commit `docs/` too. The API URL inside is the fixed deployment ID, so redeploys need no rebuild.
 
+## Speed and reliability
+
+- **Cache.** Opening spreadsheets is the slow part of a request, so the batch list and each batch's configuration (everything except reports) are kept in Apps Script's cache. Every Dev save bumps a version number that invalidates it at once; entries also expire after 10 minutes in case someone edits the spreadsheet by hand.
+- **Split loading.** The login page loads only names, stages and banners (`apiGetPublic`). After login the page loads only that santri's stage (`apiGetStage`), and the dashboard only for that stage, opening on the santri's own reports. On the static site the address shows `?stage=…&santri=…`.
+- **Saved copy.** The last good data and the login are kept on the device, so a returning santri sees their form at once while fresh data loads in the background.
+- **Retries.** Guest requests are retried up to 3 times on a dropped connection or a busy server. Each report carries an id made by the page, and the server stores a given id only once, so a retried submission never creates a duplicate.
+- **Banners** are shared "anyone with the link" and load straight from Google's image servers; the page falls back to fetching them through the script if that fails. Chart.js is loaded only when a Stage 1 chart is drawn.
+
 ## Guest login
 
-Santri pick their name and type a stage password. The password decides the stage (defaults `btc4stage0`, `btc4stage1`, `btc4stage2`; each is editable in Dev → stage tab and must be unique). An open stage shows its form with the name filled in and fixed; a locked stage shows a "wait until it is unlocked" screen with a "Cek lagi" button. The server checks the password on every submission and dashboard request and always files the report under the logged-in santri.
+The login page shows the BTC logo (`docs/logo.png`). Santri pick their name and type a stage password. The password decides the stage (defaults `btc4stage0`, `btc4stage1`, `btc4stage2`; each is editable in Dev → stage tab and must be unique). An open stage shows its form with the name filled in and fixed; a locked stage shows a "wait until it is unlocked" screen with a "Cek lagi" button. The server checks the password on every submission and dashboard request and always files the report under the logged-in santri.
 
 ## How batches stay separate
 

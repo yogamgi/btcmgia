@@ -4,7 +4,6 @@
   <base target="_top">
   <meta charset="utf-8">
   <?!= include('Styles'); ?>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
   <div id="banner" class="banner hidden"><img id="bannerImg" alt="Banner"></div>
@@ -19,15 +18,16 @@
   </header>
   <main>
     <section id="home">
-      <div class="card" style="max-width:420px;margin:24px auto">
+      <img class="logo" src="https://yogamgi.github.io/btcmgia/logo.png" alt="Boarding Technician Camp" width="640" height="335">
+      <div class="card" style="max-width:420px;margin:0 auto 24px">
         <h2>Masuk</h2>
         <p class="muted">Pilih nama kamu dan masukkan password stage dari pembimbing.</p>
         <div id="loginMsg"></div>
         <form id="loginForm" novalidate>
-          <label class="field"><span class="lbl">Nama santri</span>
+          <label class="field" for="loginStudent"><span class="lbl">Nama santri</span>
             <select id="loginStudent"><option value="">Memuat…</option></select></label>
-          <label class="field"><span class="lbl">Password</span>
-            <input type="password" id="loginPw" autocomplete="current-password"></label>
+          <label class="field" for="loginPw"><span class="lbl">Password</span>
+            <input type="password" id="loginPw" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
           <button class="btn primary" type="submit" id="loginBtn">Masuk</button>
         </form>
       </div>
@@ -73,11 +73,10 @@
   <?!= include('Shared'); ?>
   <script>
     var INITIAL_BATCH = '<?= initialBatch ?>', INITIAL_STAGE = '<?= initialStage ?>', INITIAL_VIEW = '<?= initialView ?>';
-    var pub = null, stage = null, form = null, dash = {}, dashState = { selected: '' }, currentTab = 'form';
-    // Guest login: { batchId, student, studentName, password, stageKey }. Kept for this browser tab only.
-    var auth = null;
-    try { auth = JSON.parse(sessionStorage.getItem('btcGuest') || 'null'); } catch (e) {}
-    function saveAuth() { try { auth ? sessionStorage.setItem('btcGuest', JSON.stringify(auth)) : sessionStorage.removeItem('btcGuest'); } catch (e) {} }
+    var pub = null, stage = null, form = null, today = '', dash = {}, dashState = { selected: '' }, currentTab = 'form';
+    // Guest login, remembered on this device until "Keluar": { batchId, student, studentName, password, stageKey }.
+    var auth = store.get('auth');
+    function saveAuth() { store.set('auth', auth); }
 
     setTabs(document.getElementById('tabs'), function (tab) {
       currentTab = tab;
@@ -88,98 +87,153 @@
       loadPublic(e.target.value).then(route);
     });
     document.querySelectorAll('[data-logout]').forEach(function (b) { b.addEventListener('click', logout); });
-    document.getElementById('recheckBtn').addEventListener('click', function () { loadPublic(pub && pub.batch.id).then(route); });
+    document.getElementById('recheckBtn').addEventListener('click', function () {
+      var b = this; b.disabled = true; b.textContent = 'Memeriksa…';
+      loadStage(true).then(function () { b.disabled = false; b.textContent = 'Cek lagi'; });
+    });
 
     function logout() {
       auth = null; saveAuth();
       document.getElementById('loginPw').value = '';
+      setUrl();
       showHome();
     }
 
     document.getElementById('loginForm').addEventListener('submit', function (e) {
       e.preventDefault();
       var msg = document.getElementById('loginMsg'), btn = document.getElementById('loginBtn');
-      var student = document.getElementById('loginStudent').value, pw = document.getElementById('loginPw').value;
+      var student = document.getElementById('loginStudent').value, pw = document.getElementById('loginPw').value.trim();
       msg.innerHTML = '';
+      if (!pub) { msg.innerHTML = '<div class="notice err">Data belum termuat. Periksa internet lalu muat ulang halaman.</div>'; return; }
       if (!student) { msg.innerHTML = '<div class="notice err">Pilih nama santri dulu.</div>'; return; }
+      if (!pw) { msg.innerHTML = '<div class="notice err">Isi password dulu.</div>'; return; }
       btn.disabled = true; btn.textContent = 'Memeriksa…';
       call('apiGuestLogin', pub.batch.id, student, pw).then(function (r) {
         auth = { batchId: pub.batch.id, student: r.studentId, studentName: r.studentName, password: pw, stageKey: r.stageKey };
         saveAuth();
-        // Refresh so a stage the Dev just unlocked shows its form.
-        return loadPublic(pub.batch.id).then(route);
+        return loadStage(true);
       }).catch(function (err) { msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>'; })
         .then(function () { btn.disabled = false; btn.textContent = 'Masuk'; });
     });
 
-    /** After login: the stage's form, or a "please wait" screen while it is locked. */
+    function creds() { return { student: auth.student, password: auth.password }; }
+    function stageCacheKey() { return 'stage:' + auth.batchId + ':' + auth.stageKey + ':' + auth.student; }
+
+    /** Loads only the logged-in santri's stage (status + form). Shows the saved copy first when there is one. */
+    function loadStage(fresh) {
+      if (!auth) return Promise.resolve(showHome());
+      var cached = !fresh && store.get(stageCacheKey());
+      if (cached) showStage(cached);
+      return call('apiGetStage', auth.batchId, auth.stageKey, creds()).then(function (r) {
+        store.set(stageCacheKey(), r);
+        showStage(r);
+      }).catch(function (err) {
+        if (loginExpired(err)) return;
+        if (!cached) { showHome(); document.getElementById('loginMsg').innerHTML = '<div class="notice err">' + esc(err.message) + '</div>'; }
+      });
+    }
+
+    /** The stage's form, or a "please wait" screen while it is locked. */
+    function showStage(r) {
+      var same = stage && stage.key === r.stage.key && form && JSON.stringify(form) === JSON.stringify(r.form);
+      stage = r.stage; today = r.today;
+      setBanner(r.banner, stage.key);
+      setUrl();
+      if (!r.form) {
+        form = null;
+        showOnly('lockedView');
+        document.getElementById('lockedTitle').textContent = stage.name;
+        document.getElementById('lockedText').textContent = stage.status !== 'open'
+          ? 'Halo ' + auth.studentName + ', ' + stage.name + ' masih terkunci. Tunggu sampai dibuka oleh pembimbing, lalu tekan "Cek lagi".'
+          : 'Halo ' + auth.studentName + ', form ' + stage.name + ' segera hadir. Tunggu informasi dari pembimbing.';
+        return;
+      }
+      if (same && !document.getElementById('stageView').classList.contains('hidden')) return; // keep what the santri is typing
+      form = r.form;
+      dashState.selected = auth.student; // dashboard opens on the santri's own reports
+      showOnly('stageView');
+      document.getElementById('stageTitle').textContent = stage.name;
+      document.getElementById('whoAmI').textContent = auth.studentName;
+      document.getElementById('formTitle').textContent = form.settings.formTitle;
+      document.getElementById('formDesc').textContent = form.settings.formDescription;
+      document.getElementById('dashTitle').textContent = form.settings.dashboardTitle;
+      renderForm();
+      document.querySelector('#tabs [data-tab="' + (INITIAL_VIEW === 'dashboard' ? 'dashboard' : 'form') + '"]').click();
+    }
+
+    /** Static site only: the address shows the stage and santri, so each has its own page link. */
+    function setUrl() {
+      if (typeof google !== 'undefined' || !window.history || !history.replaceState) return;
+      var q = new URLSearchParams(location.search);
+      ['stage', 'santri'].forEach(function (k) { q.delete(k); });
+      if (auth) { q.set('stage', auth.stageKey); q.set('santri', auth.student); }
+      var qs = q.toString();
+      history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+    }
+
     function route() {
-      if (!auth || !pub || auth.batchId !== pub.batch.id) return showHome();
-      var st = pub.stages.filter(function (x) { return x.key === auth.stageKey; })[0];
-      if (!st) { logout(); return; }
-      if (pub.forms[st.key]) return openStage(st.key, INITIAL_VIEW);
-      showOnly('lockedView');
-      loadBanner(pub.batch.id, st.key);
-      document.getElementById('lockedTitle').textContent = st.name;
-      document.getElementById('lockedText').textContent = st.status !== 'open'
-        ? 'Halo ' + auth.studentName + ', ' + st.name + ' masih terkunci. Tunggu sampai dibuka oleh pembimbing, lalu tekan "Cek lagi".'
-        : 'Halo ' + auth.studentName + ', form ' + st.name + ' segera hadir. Tunggu informasi dari pembimbing.';
+      if (auth && pub && auth.batchId === pub.batch.id) return loadStage(false);
+      showHome();
     }
 
     function showOnly(id) {
       ['home', 'lockedView', 'stageView'].forEach(function (x) { document.getElementById(x).classList.toggle('hidden', x !== id); });
     }
 
+    /** Login data (santri names, stages, banners). The saved copy shows at once; fresh data replaces it. */
     function loadPublic(batchId) {
+      var key = 'pub:' + (batchId || 'default');
+      var cached = store.get(key);
+      if (cached) applyPublic(cached);
       return call('apiGetPublic', batchId || '').then(function (p) {
-        pub = p;
-        dash = {};
-        var sel = document.getElementById('batchSelect');
-        sel.innerHTML = p.batches.map(function (b) {
-          return '<option value="' + esc(b.id) + '"' + (b.id === p.batch.id ? ' selected' : '') + '>' +
-            esc(b.name) + (b.status === 'archived' ? ' (arsip)' : '') + '</option>';
-        }).join('');
-        document.getElementById('subtitle').textContent = p.batchName;
-        var cur = document.getElementById('loginStudent').value;
-        document.getElementById('loginStudent').innerHTML = '<option value="">— Pilih nama —</option>' + p.students.map(function (s) {
-          return '<option value="' + esc(s.id) + '"' + (s.id === cur ? ' selected' : '') + '>' + esc(s.name) + '</option>';
-        }).join('');
+        store.set(key, p);
+        applyPublic(p);
       }).catch(function (e) {
-        document.getElementById('loginMsg').innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+        if (!cached) document.getElementById('loginMsg').innerHTML = '<div class="notice err">' + esc(e.message) +
+          ' <button class="btn sm" type="button" onclick="location.reload()">Muat ulang</button></div>';
       });
     }
 
-    // Main banner on the stage picker; each stage shows its own (the server falls back to the main one).
-    var bannerReq = 0;
-    function loadBanner(batchId, stageKey) {
-      var req = ++bannerReq;
-      call('apiGetBanner', batchId, stageKey || '').then(function (url) {
-        if (req !== bannerReq || !pub || pub.batch.id !== batchId) return;
-        document.getElementById('bannerImg').src = url || '';
-        document.getElementById('banner').classList.toggle('hidden', !url);
-      }).catch(function () { document.getElementById('banner').classList.add('hidden'); });
+    function applyPublic(p) {
+      pub = p;
+      dash = {};
+      document.getElementById('batchSelect').innerHTML = p.batches.map(function (b) {
+        return '<option value="' + esc(b.id) + '"' + (b.id === p.batch.id ? ' selected' : '') + '>' +
+          esc(b.name) + (b.status === 'archived' ? ' (arsip)' : '') + '</option>';
+      }).join('');
+      document.getElementById('subtitle').textContent = p.batchName;
+      var sel = document.getElementById('loginStudent'), cur = sel.value;
+      sel.innerHTML = '<option value="">— Pilih nama —</option>' + p.students.map(function (s) {
+        return '<option value="' + esc(s.id) + '"' + (s.id === cur ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+      }).join('');
+      if (!stage) setBanner(p.banners && p.banners[''], '');
+    }
+
+    // Banners load straight from Google's image servers; if that fails, the server sends the image itself.
+    var bannerFor = null;
+    function setBanner(url, stageKey) {
+      var box = document.getElementById('banner'), img = document.getElementById('bannerImg');
+      var batchId = pub ? pub.batch.id : (auth ? auth.batchId : '');
+      var tag = batchId + '|' + stageKey + '|' + (url || '');
+      if (tag === bannerFor) return;
+      bannerFor = tag;
+      if (!url) { box.classList.add('hidden'); img.removeAttribute('src'); return; }
+      img.onload = function () { box.classList.remove('hidden'); };
+      img.onerror = function () {
+        if (bannerFor !== tag || !batchId) return;
+        call('apiGetBanner', batchId, stageKey).then(function (data) {
+          if (bannerFor !== tag) return;
+          img.onerror = function () { box.classList.add('hidden'); };
+          if (data) img.src = data; else box.classList.add('hidden');
+        }).catch(function () { box.classList.add('hidden'); });
+      };
+      img.src = url;
     }
 
     function showHome() {
-      if (pub) loadBanner(pub.batch.id);
-      stage = null;
+      stage = null; form = null;
+      if (pub) setBanner(pub.banners && pub.banners[''], '');
       showOnly('home');
-    }
-
-    function openStage(key, view) {
-      if (!pub.forms[key]) return;
-      stage = pub.stages.filter(function (s) { return s.key === key; })[0];
-      form = pub.forms[key];
-      dashState.selected = '';
-      showOnly('stageView');
-      document.getElementById('stageTitle').textContent = stage.name;
-      document.getElementById('whoAmI').textContent = auth.studentName;
-      loadBanner(pub.batch.id, key);
-      document.getElementById('formTitle').textContent = form.settings.formTitle;
-      document.getElementById('formDesc').textContent = form.settings.formDescription;
-      document.getElementById('dashTitle').textContent = form.settings.dashboardTitle;
-      renderForm();
-      document.querySelector('#tabs [data-tab="' + (view === 'dashboard' ? 'dashboard' : 'form') + '"]').click();
     }
 
     function renderForm() {
@@ -205,7 +259,7 @@
       switch (f.type) {
         case 'textarea': input = '<textarea id="' + id + '" name="' + name + '"' + req + '></textarea>'; break;
         case 'number': input = '<input type="number" inputmode="numeric" min="0" step="1" id="' + id + '" name="' + name + '"' + req + '>'; break;
-        case 'date': input = '<input type="date" id="' + id + '" name="' + name + '" value="' + esc(pub.today) + '"' + req + '>'; break;
+        case 'date': input = '<input type="date" id="' + id + '" name="' + name + '" value="' + esc(today) + '"' + req + '>'; break;
         case 'student':
           // Always the santri who logged in; the server files the report under that login too.
           input = '<select id="' + id + '" name="' + name + '" disabled><option value="' + esc(auth.student) + '">' + esc(auth.studentName) + '</option></select>';
@@ -289,11 +343,12 @@
         msg.scrollIntoView({ behavior: 'smooth' });
         return;
       }
+      answers.clientId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
       var btn = another ? document.getElementById('anotherBtn') : document.getElementById('submitBtn'), stageKey = stage.key, label = btn.textContent;
       el.querySelectorAll('button[type=submit]').forEach(function (b) { b.disabled = true; });
       btn.textContent = 'Mengirim…';
       Promise.all(pending).then(function () {
-        return call('apiSubmitReport', pub.batch.id, answers, stageKey, { student: auth.student, password: auth.password });
+        return call('apiSubmitReport', auth.batchId, answers, stageKey, creds());
       }).then(function () {
         delete dash[stageKey];
         var ok = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
@@ -313,11 +368,11 @@
 
     function loadDashboard() {
       var el = document.getElementById('dashboard');
-      if (!pub || !stage) return;
+      if (!auth || !stage) return;
       var key = stage.key;
       if (dash[key]) { renderAnyDashboard(el, dash[key], dashState); return; }
       el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
-      call('apiGetDashboard', pub.batch.id, key, { student: auth.student, password: auth.password }).then(function (d) {
+      call('apiGetDashboard', auth.batchId, key, creds()).then(function (d) {
         dash[key] = d;
         if (stage && stage.key === key) renderAnyDashboard(el, d, dashState);
       }).catch(function (e) { if (!loginExpired(e)) el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
@@ -331,8 +386,11 @@
       return true;
     }
 
-    showOnly('home');
-    loadPublic((auth && auth.batchId) || INITIAL_BATCH).then(function () { if (auth) route(); else showHome(); });
+    // A santri who is still logged in on this device goes straight to their stage.
+    showOnly(auth ? 'lockedView' : 'home');
+    if (auth) { document.getElementById('lockedTitle').textContent = 'Memuat…'; document.getElementById('lockedText').textContent = ''; }
+    if (auth) loadStage(false);
+    loadPublic((auth && auth.batchId) || INITIAL_BATCH).then(function () { if (!auth) showHome(); });
   </script>
 </body>
 </html>
