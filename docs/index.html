@@ -123,14 +123,36 @@
   </header>
   <main>
     <section id="home">
-      <h2 style="margin:0 0 12px">Pilih stage</h2>
-      <div class="grid stage-grid" id="stageList"><div class="loading">Memuat…</div></div>
+      <div class="card" style="max-width:420px;margin:24px auto">
+        <h2>Masuk</h2>
+        <p class="muted">Pilih nama kamu dan masukkan password stage dari pembimbing.</p>
+        <div id="loginMsg"></div>
+        <form id="loginForm" novalidate>
+          <label class="field"><span class="lbl">Nama santri</span>
+            <select id="loginStudent"><option value="">Memuat…</option></select></label>
+          <label class="field"><span class="lbl">Password</span>
+            <input type="password" id="loginPw" autocomplete="current-password"></label>
+          <button class="btn primary" type="submit" id="loginBtn">Masuk</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="lockedView" class="hidden">
+      <div class="card" style="max-width:520px;margin:24px auto;text-align:center">
+        <div style="font-size:40px">🔒</div>
+        <h2 id="lockedTitle"></h2>
+        <p id="lockedText"></p>
+        <div class="row" style="justify-content:center"><button class="btn primary" id="recheckBtn">Cek lagi</button>
+          <button class="btn" data-logout>Keluar</button></div>
+      </div>
     </section>
 
     <section id="stageView" class="hidden">
       <div class="row" style="margin-bottom:8px">
-        <button class="btn sm" id="backBtn">← Semua stage</button>
         <h2 id="stageTitle" style="margin:0"></h2>
+        <span class="spacer"></span>
+        <span class="muted" id="whoAmI"></span>
+        <button class="btn sm" data-logout>Keluar</button>
       </div>
       <nav class="tabs" id="tabs">
         <button data-tab="form" class="active">Isi Laporan</button>
@@ -482,6 +504,10 @@
     var INITIAL_BATCH = qp('batch', /[^A-Za-z0-9_-]/g), INITIAL_STAGE = qp('stage', /[^a-z0-9]/g),
       INITIAL_VIEW = QS.get('view') === 'dashboard' ? 'dashboard' : 'form';
     var pub = null, stage = null, form = null, dash = {}, dashState = { selected: '' }, currentTab = 'form';
+    // Guest login: { batchId, student, studentName, password, stageKey }. Kept for this browser tab only.
+    var auth = null;
+    try { auth = JSON.parse(sessionStorage.getItem('btcGuest') || 'null'); } catch (e) {}
+    function saveAuth() { try { auth ? sessionStorage.setItem('btcGuest', JSON.stringify(auth)) : sessionStorage.removeItem('btcGuest'); } catch (e) {} }
 
     setTabs(document.getElementById('tabs'), function (tab) {
       currentTab = tab;
@@ -489,13 +515,52 @@
     });
 
     document.getElementById('batchSelect').addEventListener('change', function (e) {
-      loadPublic(e.target.value);
+      loadPublic(e.target.value).then(route);
     });
-    document.getElementById('backBtn').addEventListener('click', showHome);
+    document.querySelectorAll('[data-logout]').forEach(function (b) { b.addEventListener('click', logout); });
+    document.getElementById('recheckBtn').addEventListener('click', function () { loadPublic(pub && pub.batch.id).then(route); });
+
+    function logout() {
+      auth = null; saveAuth();
+      document.getElementById('loginPw').value = '';
+      showHome();
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var msg = document.getElementById('loginMsg'), btn = document.getElementById('loginBtn');
+      var student = document.getElementById('loginStudent').value, pw = document.getElementById('loginPw').value;
+      msg.innerHTML = '';
+      if (!student) { msg.innerHTML = '<div class="notice err">Pilih nama santri dulu.</div>'; return; }
+      btn.disabled = true; btn.textContent = 'Memeriksa…';
+      call('apiGuestLogin', pub.batch.id, student, pw).then(function (r) {
+        auth = { batchId: pub.batch.id, student: r.studentId, studentName: r.studentName, password: pw, stageKey: r.stageKey };
+        saveAuth();
+        // Refresh so a stage the Dev just unlocked shows its form.
+        return loadPublic(pub.batch.id).then(route);
+      }).catch(function (err) { msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>'; })
+        .then(function () { btn.disabled = false; btn.textContent = 'Masuk'; });
+    });
+
+    /** After login: the stage's form, or a "please wait" screen while it is locked. */
+    function route() {
+      if (!auth || !pub || auth.batchId !== pub.batch.id) return showHome();
+      var st = pub.stages.filter(function (x) { return x.key === auth.stageKey; })[0];
+      if (!st) { logout(); return; }
+      if (pub.forms[st.key]) return openStage(st.key, INITIAL_VIEW);
+      showOnly('lockedView');
+      loadBanner(pub.batch.id, st.key);
+      document.getElementById('lockedTitle').textContent = st.name;
+      document.getElementById('lockedText').textContent = st.status !== 'open'
+        ? 'Halo ' + auth.studentName + ', ' + st.name + ' masih terkunci. Tunggu sampai dibuka oleh pembimbing, lalu tekan "Cek lagi".'
+        : 'Halo ' + auth.studentName + ', form ' + st.name + ' segera hadir. Tunggu informasi dari pembimbing.';
+    }
+
+    function showOnly(id) {
+      ['home', 'lockedView', 'stageView'].forEach(function (x) { document.getElementById(x).classList.toggle('hidden', x !== id); });
+    }
 
     function loadPublic(batchId) {
-      document.getElementById('stageList').innerHTML = '<div class="loading">Memuat…</div>';
-      showHome();
       return call('apiGetPublic', batchId || '').then(function (p) {
         pub = p;
         dash = {};
@@ -505,10 +570,12 @@
             esc(b.name) + (b.status === 'archived' ? ' (arsip)' : '') + '</option>';
         }).join('');
         document.getElementById('subtitle').textContent = p.batchName;
-        renderStages();
-        loadBanner(p.batch.id);
+        var cur = document.getElementById('loginStudent').value;
+        document.getElementById('loginStudent').innerHTML = '<option value="">— Pilih nama —</option>' + p.students.map(function (s) {
+          return '<option value="' + esc(s.id) + '"' + (s.id === cur ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+        }).join('');
       }).catch(function (e) {
-        document.getElementById('stageList').innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+        document.getElementById('loginMsg').innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
       });
     }
 
@@ -523,25 +590,10 @@
       }).catch(function () { document.getElementById('banner').classList.add('hidden'); });
     }
 
-    function renderStages() {
-      var el = document.getElementById('stageList');
-      el.innerHTML = pub.stages.map(function (st) {
-        var usable = !!pub.forms[st.key];
-        var pill = st.status !== 'open' ? '<span class="pill none">🔒 Terkunci</span>'
-          : usable ? '<span class="pill ok">Terbuka</span>' : '<span class="pill none">Segera hadir</span>';
-        return '<button class="stage-card" data-stage="' + esc(st.key) + '"' + (usable ? '' : ' disabled') + '>' +
-          '<span class="name">' + esc(st.name) + '</span><span class="desc">' + esc(st.description) + '</span><span>' + pill + '</span></button>';
-      }).join('');
-      el.querySelectorAll('[data-stage]').forEach(function (b) {
-        b.addEventListener('click', function () { openStage(b.getAttribute('data-stage')); });
-      });
-    }
-
     function showHome() {
-      if (stage && pub) loadBanner(pub.batch.id);
+      if (pub) loadBanner(pub.batch.id);
       stage = null;
-      document.getElementById('home').classList.remove('hidden');
-      document.getElementById('stageView').classList.add('hidden');
+      showOnly('home');
     }
 
     function openStage(key, view) {
@@ -549,9 +601,9 @@
       stage = pub.stages.filter(function (s) { return s.key === key; })[0];
       form = pub.forms[key];
       dashState.selected = '';
-      document.getElementById('home').classList.add('hidden');
-      document.getElementById('stageView').classList.remove('hidden');
+      showOnly('stageView');
       document.getElementById('stageTitle').textContent = stage.name;
+      document.getElementById('whoAmI').textContent = auth.studentName;
       loadBanner(pub.batch.id, key);
       document.getElementById('formTitle').textContent = form.settings.formTitle;
       document.getElementById('formDesc').textContent = form.settings.formDescription;
@@ -585,8 +637,8 @@
         case 'number': input = '<input type="number" inputmode="numeric" min="0" step="1" id="' + id + '" name="' + name + '"' + req + '>'; break;
         case 'date': input = '<input type="date" id="' + id + '" name="' + name + '" value="' + esc(pub.today) + '"' + req + '>'; break;
         case 'student':
-          input = '<select id="' + id + '" name="' + name + '"' + req + '><option value="">— Pilih nama —</option>' +
-            pub.students.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>'; }).join('') + '</select>';
+          // Always the santri who logged in; the server files the report under that login too.
+          input = '<select id="' + id + '" name="' + name + '" disabled><option value="' + esc(auth.student) + '">' + esc(auth.studentName) + '</option></select>';
           break;
         case 'select':
           input = '<select id="' + id + '" name="' + name + '"' + req + '><option value="">— Pilih —</option>' +
@@ -671,7 +723,7 @@
       el.querySelectorAll('button[type=submit]').forEach(function (b) { b.disabled = true; });
       btn.textContent = 'Mengirim…';
       Promise.all(pending).then(function () {
-        return call('apiSubmitReport', pub.batch.id, answers, stageKey);
+        return call('apiSubmitReport', pub.batch.id, answers, stageKey, { student: auth.student, password: auth.password });
       }).then(function () {
         delete dash[stageKey];
         var ok = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
@@ -681,6 +733,7 @@
         msg.innerHTML = ok + '<div class="row"><button class="btn primary" type="button" data-new-report>Masukan laporan lainnya</button></div>';
         msg.scrollIntoView({ behavior: 'smooth' });
       }).catch(function (err) {
+        if (loginExpired(err)) return;
         msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>';
         msg.scrollIntoView({ behavior: 'smooth' });
         el.querySelectorAll('button[type=submit]').forEach(function (b) { b.disabled = false; });
@@ -694,17 +747,22 @@
       var key = stage.key;
       if (dash[key]) { renderAnyDashboard(el, dash[key], dashState); return; }
       el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
-      call('apiGetDashboard', pub.batch.id, key).then(function (d) {
+      call('apiGetDashboard', pub.batch.id, key, { student: auth.student, password: auth.password }).then(function (d) {
         dash[key] = d;
         if (stage && stage.key === key) renderAnyDashboard(el, d, dashState);
-      }).catch(function (e) { el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
+      }).catch(function (e) { if (!loginExpired(e)) el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
     }
 
-    loadPublic(INITIAL_BATCH).then(function () {
-      // Old links (?view=dashboard without a stage) meant Stage 1.
-      var key = INITIAL_STAGE || (INITIAL_VIEW === 'dashboard' ? 'stage1' : '');
-      if (pub && key && pub.forms[key]) openStage(key, INITIAL_VIEW);
-    });
+    /** The stage password changed or the santri was removed: back to the login panel. */
+    function loginExpired(err) {
+      if (String(err && err.message).indexOf('LOGIN_REQUIRED') < 0) return false;
+      logout();
+      document.getElementById('loginMsg').innerHTML = '<div class="notice err">Silakan masuk lagi.</div>';
+      return true;
+    }
+
+    showOnly('home');
+    loadPublic((auth && auth.batchId) || INITIAL_BATCH).then(function () { if (auth) route(); else showHome(); });
   </script>
 </body>
 </html>

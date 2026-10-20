@@ -210,3 +210,16 @@ test('stage banner id survives a stage save', () => {
   assert.strictEqual(rows[0].bannerFileId, 'abc');
   assert.strictEqual(rows[1].bannerFileId, '');
 });
+
+test('stage passwords: defaults, lookup, kept on save, duplicates rejected, hidden from guests', () => {
+  const st = L.stagesFrom_([]);
+  assert.deepStrictEqual(st.map(s => s.password), ['btc4stage0', 'btc4stage1', 'btc4stage2']);
+  assert.strictEqual(L.stageForPassword_(st, ' btc4stage1 ').key, 'stage1');
+  assert.strictEqual(L.stageForPassword_(st, 'BTC4STAGE1'), null);
+  assert.strictEqual(L.stageForPassword_(st, ''), null);
+  const saved = L.sanitizeTable_('Stages', [{ key: 'stage0', password: 'abc' }], {}).rows;
+  assert.strictEqual(saved[0].password, 'abc');
+  assert.strictEqual(saved[1].password, 'btc4stage1');
+  assert.throws(() => L.sanitizeTable_('Stages', [{ key: 'stage0', password: 'x' }, { key: 'stage1', password: 'x' }], {}), /berbeda/);
+  assert.ok(L.publicStages_(st).every(s => !('password' in s) && !('bannerFileId' in s)));
+});

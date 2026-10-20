@@ -19,11 +19,18 @@ It is a Google Apps Script web app. All data lives in Google Drive/Sheets of the
 
 **Form** questions are fully editable from the Dev page (text, paragraph, number, date, dropdown, multiple choice, checkboxes, file upload, grouped by section). The questions a dashboard depends on (Stage 1: date, santri name, device type; Stage 0: santri name) can be relabelled or moved but not deleted. Photos are saved in the batch's `Uploads` folder.
 
-## Guest page for every visitor (GitHub Pages)
+## Pages for every visitor (GitHub Pages)
 
-Pages served by script.google.com fail with "Maaf, saat ini tidak dapat membuka file" for visitors signed in to more than one Google account (a long-standing Apps Script bug). So the Guest page is also published as a static site at **https://yogamgi.github.io/btcmgia/**, built by `scripts/build-guest.js` into `docs/` and served by GitHub Pages (branch `claude/stage1-akademi-btc-3tzhxg`, folder `/docs`). It calls the web app's `doPost` JSON API with `fetch` (no cookies, `text/plain`), which works for everyone. Only the four Guest functions are reachable that way; Dev stays on `?mode=dev`. The same `?stage=`, `?view=` and `?batch=` parameters work there.
+Pages served by script.google.com fail with "Maaf, saat ini tidak dapat membuka file" for visitors signed in to more than one Google account (a long-standing Apps Script bug). So both pages are also published as a static site, built by `scripts/build-guest.js` into `docs/` and served by GitHub Pages (branch `claude/stage1-akademi-btc-3tzhxg`, folder `/docs`):
 
-After changing a Guest page file, run `npm run build` and commit `docs/` too. The API URL inside it is the fixed deployment ID, so redeploys need no rebuild.
+- Guest: **https://yogamgi.github.io/btcmgia/**
+- Dev: **https://yogamgi.github.io/btcmgia/dev.html** (same Dev password)
+
+They call the web app's `doPost` JSON API with `fetch` (no cookies, `text/plain`), which works for everyone. Every Dev function still checks the Dev login token. After changing a page, run `npm run build` and commit `docs/` too. The API URL inside is the fixed deployment ID, so redeploys need no rebuild.
+
+## Guest login
+
+Santri pick their name and type a stage password. The password decides the stage (defaults `btc4stage0`, `btc4stage1`, `btc4stage2`; each is editable in Dev → stage tab and must be unique). An open stage shows its form with the name filled in and fixed; a locked stage shows a "wait until it is unlocked" screen with a "Cek lagi" button. The server checks the password on every submission and dashboard request and always files the report under the logged-in santri.
 
 ## How batches stay separate
 

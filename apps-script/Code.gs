@@ -18,11 +18,10 @@ var APP_NAME = 'BTC - Boarding Technician Camp';
 var DEFAULT_ROOT_FOLDER_NAME = 'Akademi BTC - Stage 1';
 var REGISTRY_FILE_NAME = 'Akademi BTC Stage 1 - Registry';
 var REGISTRY_HEADERS = ['id', 'name', 'spreadsheetId', 'folderId', 'status', 'isDefault', 'createdAt'];
-// Guest page outside script.google.com (GitHub Pages, built by scripts/build-guest.js). It talks to doPost,
-// which keeps working for visitors signed in to several Google accounts, unlike HtmlService pages.
+// Guest and Dev pages outside script.google.com (GitHub Pages, built by scripts/build-guest.js). They talk to
+// doPost, which keeps working for visitors signed in to several Google accounts, unlike HtmlService pages.
 var GUEST_PAGE_URL = 'https://yogamgi.github.io/btcmgia/';
-// Functions the static Guest page may call through doPost. Dev functions are never reachable this way.
-var PUBLIC_API = ['apiGetPublic', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner'];
+var DEV_PAGE_URL = 'https://yogamgi.github.io/btcmgia/dev.html';
 var DEV_SESSION_SECONDS = 6 * 60 * 60;
 var MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -48,8 +47,16 @@ function doPost(e) {
   var out;
   try {
     var req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if (PUBLIC_API.indexOf(req.fn) < 0) throw new Error('Fungsi tidak dikenal.');
-    var fns = { apiGetPublic: apiGetPublic, apiSubmitReport: apiSubmitReport, apiGetDashboard: apiGetDashboard, apiGetBanner: apiGetBanner };
+    // Same functions the HtmlService pages reach through google.script.run; every Dev one checks the Dev token.
+    var fns = {
+      apiGetPublic: apiGetPublic, apiGuestLogin: apiGuestLogin, apiSubmitReport: apiSubmitReport,
+      apiGetDashboard: apiGetDashboard, apiGetBanner: apiGetBanner,
+      apiDevLogin: apiDevLogin, apiDevLogout: apiDevLogout, apiDevChangePassword: apiDevChangePassword,
+      apiDevGetAll: apiDevGetAll, apiDevSaveTable: apiDevSaveTable, apiDevSaveReport: apiDevSaveReport,
+      apiDevDeleteReport: apiDevDeleteReport, apiDevSetBanner: apiDevSetBanner, apiDevCreateBatch: apiDevCreateBatch,
+      apiDevUpdateBatch: apiDevUpdateBatch, apiDevGetDashboard: apiDevGetDashboard
+    };
+    if (!fns.hasOwnProperty(req.fn)) throw new Error('Fungsi tidak dikenal.');
     out = { ok: true, result: fns[req.fn].apply(null, Array.isArray(req.args) ? req.args : []) };
   } catch (err) {
     out = { ok: false, error: String(err && err.message || err) };
@@ -394,7 +401,7 @@ function apiGetPublic(batchId) {
     batches: publicBatchList_(),
     batch: { id: meta.id, name: meta.name, status: meta.status },
     batchName: s.batchName || meta.name,
-    stages: data.stages,
+    stages: publicStages_(data.stages),
     forms: forms,
     students: activeStudents_(data.students).map(function (st) { return { id: String(st.id), name: st.name, nickname: st.nickname || '' }; })
       .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); }),
@@ -402,13 +409,43 @@ function apiGetPublic(batchId) {
   };
 }
 
-/** stageKey defaults to Stage 1 so a Guest page loaded before stages existed still submits correctly. */
-function apiSubmitReport(batchId, answers, stageKey) {
+/**
+ * Guest login: santri name + stage password. The password decides the stage.
+ * Returns { stageKey, studentId, studentName, status }; a locked stage still logs in, and the page says to wait.
+ */
+function apiGuestLogin(batchId, studentId, password) {
+  var meta = resolveBatch_(batchId);
+  var data = loadBatchData_(SpreadsheetApp.openById(meta.spreadsheetId));
+  var st = activeStudents_(data.students).filter(function (x) { return String(x.id) === String(studentId); })[0];
+  if (!st) throw new Error('Pilih nama santri dulu.');
+  var stage = stageForPassword_(data.stages, password);
+  if (!stage) {
+    Utilities.sleep(1000);
+    throw new Error('Password salah.');
+  }
+  return { stageKey: stage.key, studentId: String(st.id), studentName: st.name, status: stage.status };
+}
+
+/** auth: { student, password } from the Guest login; must still be valid for `stageKey`. Returns the student. */
+function requireGuest_(data, stageKey, auth) {
+  auth = auth || {};
+  var stage = stageForPassword_(data.stages, auth.password);
+  if (!stage || stage.key !== stageKey) throw new Error('LOGIN_REQUIRED');
+  var st = activeStudents_(data.students).filter(function (x) { return String(x.id) === String(auth.student); })[0];
+  if (!st) throw new Error('LOGIN_REQUIRED');
+  return st;
+}
+
+/** auth: the Guest login ({ student, password }); the report is always filed under the logged-in santri. */
+function apiSubmitReport(batchId, answers, stageKey, auth) {
   stageKey = stageKey || 'stage1';
   var meta = resolveBatch_(batchId);
   if (meta.status === 'archived') throw new Error('Batch ini sudah ditutup.');
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
   var data = loadBatchData_(ss);
+  var who = requireGuest_(data, stageKey, auth);
+  answers = answers || {};
+  answers.student = String(who.id);
   stageOf_(data, stageKey, false);
   if (!STAGE_TABLES[stageKey]) throw new Error('Form untuk stage ini belum tersedia.');
   if (stageKey === 'stage1' && data.settings.formOpen !== undefined && !toBool_(data.settings.formOpen)) throw new Error('Form sedang ditutup.');
@@ -466,10 +503,11 @@ function apiGetBanner(batchId, stageKey, exact) {
   }
 }
 
-function dashboardFor_(meta, stageKey, allowLocked) {
+function dashboardFor_(meta, stageKey, allowLocked, auth) {
   stageKey = stageKey || 'stage1';
   var ss = SpreadsheetApp.openById(meta.spreadsheetId);
   var data = loadBatchData_(ss);
+  if (!allowLocked) requireGuest_(data, stageKey, auth);
   var st = stageOf_(data, stageKey, allowLocked);
   if (!STAGE_TABLES[stageKey]) throw new Error('Dashboard untuk stage ini belum tersedia.');
   var reports = readTable_(ss, STAGE_TABLES[stageKey].reports).rows;
@@ -486,8 +524,8 @@ function dashboardFor_(meta, stageKey, allowLocked) {
   return dash;
 }
 
-function apiGetDashboard(batchId, stageKey) {
-  return dashboardFor_(resolveBatch_(batchId), stageKey, false);
+function apiGetDashboard(batchId, stageKey, auth) {
+  return dashboardFor_(resolveBatch_(batchId), stageKey, false, auth);
 }
 
 // ---------------------------------------------------------------- dev API
@@ -554,7 +592,8 @@ function apiDevGetAll(token, batchId) {
       root: getRootFolder_().getUrl(),
       registry: SpreadsheetApp.openById(props_().getProperty('REGISTRY_ID')).getUrl(),
       app: ScriptApp.getService().getUrl(),
-      guest: GUEST_PAGE_URL
+      guest: GUEST_PAGE_URL,
+      dev: DEV_PAGE_URL
     }
   };
 }

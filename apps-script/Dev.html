@@ -223,15 +223,18 @@
         var el = document.querySelector('[data-stage-card="' + st.key + '"]');
         if (!el) return;
         el.innerHTML = '<h2>' + esc(st.name) + ' ' + (st.status === 'open' ? '<span class="pill ok">Terbuka untuk santri</span>' : '<span class="pill none">🔒 Terkunci</span>') + '</h2>' +
-          '<p class="muted">Selama terkunci, santri tidak bisa membuka form dan dashboard stage ini. Dev tetap bisa mengatur dan melihat pratinjau di sini.</p>' +
+          '<p class="muted">Selama terkunci, santri yang masuk dengan password stage ini melihat pesan untuk menunggu. Dev tetap bisa mengatur dan melihat pratinjau di sini.</p>' +
           '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">' +
           '<label class="field"><span class="lbl">Nama stage</span><input data-st="name" value="' + esc(st.name) + '"></label>' +
-          '<label class="field"><span class="lbl">Keterangan (tampil di kartu stage)</span><input data-st="description" value="' + esc(st.description) + '"></label></div>' +
-          '<div class="row"><button class="btn" data-st-save>Simpan nama &amp; keterangan</button><span class="spacer"></span>' +
+          '<label class="field"><span class="lbl">Keterangan</span><input data-st="description" value="' + esc(st.description) + '"></label>' +
+          '<label class="field"><span class="lbl">Password login santri</span><span class="help">Santri memilih nama lalu mengetik password ini untuk masuk ke stage ini.</span>' +
+          '<input data-st="password" value="' + esc(st.password || '') + '" autocomplete="off"></label></div>' +
+          '<div class="row"><button class="btn" data-st-save>Simpan</button><span class="spacer"></span>' +
           (st.status === 'open' ? '<button class="btn danger" data-st-status="locked">Kunci stage</button>'
             : '<button class="btn primary" data-st-status="open">Buka untuk santri</button>') + '</div>';
         el.querySelector('[data-st-save]').onclick = function () {
-          saveStage(st.key, { name: el.querySelector('[data-st="name"]').value, description: el.querySelector('[data-st="description"]').value }, 'Stage tersimpan.');
+          saveStage(st.key, { name: el.querySelector('[data-st="name"]').value, description: el.querySelector('[data-st="description"]').value,
+            password: el.querySelector('[data-st="password"]').value.trim() }, 'Stage tersimpan.');
         };
         el.querySelector('[data-st-status]').onclick = function () {
           var to = this.getAttribute('data-st-status');

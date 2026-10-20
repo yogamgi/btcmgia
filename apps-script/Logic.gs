@@ -26,9 +26,9 @@ var SCHEMA_VERSION = 3;
 
 // The three BTC stages. Keys are fixed; names, descriptions and lock status are edited in Dev.
 var STAGES = [
-  { key: 'stage0', name: 'Stage 0 - Orientasi', description: 'Laporan kegiatan orientasi di cabang penempatan.', status: 'open' },
-  { key: 'stage1', name: 'Stage 1 - Akademi', description: 'Laporan pengerjaan unit dan dashboard target santri.', status: 'locked' },
-  { key: 'stage2', name: 'Stage 2 - Asistensi', description: 'Segera hadir.', status: 'locked' }
+  { key: 'stage0', name: 'Stage 0 - Orientasi', description: 'Laporan kegiatan orientasi di cabang penempatan.', status: 'open', password: 'btc4stage0' },
+  { key: 'stage1', name: 'Stage 1 - Akademi', description: 'Laporan pengerjaan unit dan dashboard target santri.', status: 'locked', password: 'btc4stage1' },
+  { key: 'stage2', name: 'Stage 2 - Asistensi', description: 'Segera hadir.', status: 'locked', password: 'btc4stage2' }
 ];
 
 // Sheets holding each stage's form and answers. A stage without an entry has no form yet.
@@ -50,7 +50,7 @@ var TABLE_HEADERS = {
   FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
   Milestones: ['day', 'units'],
   Reports: ['id', 'submittedAt', 'updatedAt', 'studentName'],
-  Stages: ['key', 'name', 'description', 'status', 'order', 'bannerFileId'],
+  Stages: ['key', 'name', 'description', 'status', 'order', 'bannerFileId', 'password'],
   S0_FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
   S0_Reports: ['id', 'submittedAt', 'updatedAt', 'studentName']
 };
@@ -70,7 +70,24 @@ function stagesFrom_(rows) {
     return { key: d.key, name: String(r.name || '').trim() || d.name,
       description: r.description == null ? d.description : String(r.description),
       status: r.status === 'open' || r.status === 'locked' ? r.status : d.status,
-      order: i + 1, ready: !!STAGE_TABLES[d.key], bannerFileId: String(r.bannerFileId || '') };
+      order: i + 1, ready: !!STAGE_TABLES[d.key], bannerFileId: String(r.bannerFileId || ''),
+      // Santri log in with this password; it decides which stage they land in.
+      password: r.password == null ? d.password : String(r.password).trim() };
+  });
+}
+
+/** The stage whose login password is `password` (exact match), or null. */
+function stageForPassword_(stages, password) {
+  var pw = String(password == null ? '' : password).trim();
+  if (!pw) return null;
+  for (var i = 0; i < stages.length; i++) if (stages[i].password && stages[i].password === pw) return stages[i];
+  return null;
+}
+
+/** Stage info safe to send to guests (no passwords). */
+function publicStages_(stages) {
+  return stages.map(function (st) {
+    return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order, ready: st.ready };
   });
 }
 
@@ -482,7 +499,14 @@ function sanitizeTable_(name, rows, ctx) {
     });
   } else if (name === 'Stages') {
     out = stagesFrom_(rows).map(function (st) {
-      return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order, bannerFileId: st.bannerFileId };
+      return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order,
+        bannerFileId: st.bannerFileId, password: st.password };
+    });
+    var pwSeen = {};
+    out.forEach(function (st) {
+      if (!st.password) return;
+      if (pwSeen[st.password]) throw new Error('Password ' + st.name + ' sama dengan ' + pwSeen[st.password] + '. Setiap stage harus punya password berbeda.');
+      pwSeen[st.password] = st.name;
     });
   } else if (name === 'FormFields' || name === 'S0_FormFields') {
     var SYS = systemFieldsFor_(name);
@@ -608,6 +632,6 @@ if (typeof module !== 'undefined') {
     toBool_: toBool_, toNum_: toNum_, slugKey_: slugKey_, dayNumber_: dayNumber_, interpolateMilestone_: interpolateMilestone_,
     computeDashboard_: computeDashboard_, validateReport_: validateReport_, sanitizeTable_: sanitizeTable_,
     defaultBatchTables_: defaultBatchTables_, migrateFormFields_: migrateFormFields_, computeRecap_: computeRecap_,
-    stagesFrom_: stagesFrom_, defaultStage0Fields_: defaultStage0Fields_, STAGE_TABLES: STAGE_TABLES, answerHasOption_: answerHasOption_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
+    stagesFrom_: stagesFrom_, stageForPassword_: stageForPassword_, publicStages_: publicStages_, defaultStage0Fields_: defaultStage0Fields_, STAGE_TABLES: STAGE_TABLES, answerHasOption_: answerHasOption_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
   };
 }
