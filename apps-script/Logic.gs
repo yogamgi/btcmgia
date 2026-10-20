@@ -40,7 +40,7 @@ function renameLaporanRows_(rows, cols) {
 
 // The three BTC stages. Keys are fixed; names, descriptions and lock status are edited in Dev.
 var STAGES = [
-  { key: 'stage0', name: 'Stage 0 - Orientasi', description: 'Aktivitas orientasi di cabang penempatan.', status: 'open', password: 'btc4stage0' },
+  { key: 'stage0', name: 'Stage 0 - Orientasi', description: 'Aktivitas orientasi di cabang penempatan.', status: 'open', password: 'btc4stage0', goal: 10 },
   { key: 'stage1', name: 'Stage 1 - Akademi', description: 'Aktivitas pengerjaan unit dan dashboard target santri.', status: 'locked', password: 'btc4stage1' },
   { key: 'stage2', name: 'Stage 2 - Asistensi', description: 'Segera hadir.', status: 'locked', password: 'btc4stage2' }
 ];
@@ -64,7 +64,7 @@ var TABLE_HEADERS = {
   FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
   Milestones: ['day', 'units'],
   Reports: ['id', 'submittedAt', 'updatedAt', 'studentName'],
-  Stages: ['key', 'name', 'description', 'status', 'order', 'bannerFileId', 'password'],
+  Stages: ['key', 'name', 'description', 'status', 'order', 'bannerFileId', 'password', 'goal'],
   S0_FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
   S0_Reports: ['id', 'submittedAt', 'updatedAt', 'studentName'],
   // Activity log for the Dev bell: new activities, change requests from santri, Dev edits.
@@ -90,7 +90,9 @@ function stagesFrom_(rows) {
       status: r.status === 'open' || r.status === 'locked' ? r.status : d.status,
       order: i + 1, ready: !!STAGE_TABLES[d.key], bannerFileId: String(r.bannerFileId || ''),
       // Santri log in with this password; it decides which stage they land in.
-      password: r.password == null ? d.password : String(r.password).trim() };
+      password: r.password == null ? d.password : String(r.password).trim(),
+      // Activities a santri needs to finish a stage without unit targets (Stage 0). Stage 1 uses the unit targets.
+      goal: Math.max(1, Math.round(toNum_(r.goal, d.goal || 10))) };
   });
 }
 
@@ -395,6 +397,94 @@ function computeRecap_(input) {
   };
 }
 
+// ---------- Gamification: XP, levels, streaks, badges, ranking ----------
+
+var XP_PER_UNIT = 10;
+var LEVELS = [
+  { min: 0, name: 'Rekrut', icon: '🌱' },
+  { min: 20, name: 'Penjelajah', icon: '🧭' },
+  { min: 40, name: 'Pejuang', icon: '⚔️' },
+  { min: 60, name: 'Ahli', icon: '🛠️' },
+  { min: 80, name: 'Jagoan', icon: '🚀' },
+  { min: 100, name: 'Juara Stage', icon: '🏆' }
+];
+
+/** Streak of consecutive days with activity. dayNums: sorted unique day numbers. */
+function streaks_(dayNums, todayNum) {
+  var best = 0, run = 0, prev = null;
+  dayNums.forEach(function (d) { run = prev != null && d === prev + 1 ? run + 1 : 1; best = Math.max(best, run); prev = d; });
+  var last = dayNums.length ? dayNums[dayNums.length - 1] : null;
+  // Today without an activity yet keeps yesterday's streak alive ("at risk") until the day ends.
+  var current = last != null && todayNum != null && (last === todayNum || last === todayNum - 1) ? run : 0;
+  return { current: current, best: best, activeToday: last != null && last === todayNum, atRisk: current > 0 && last !== todayNum };
+}
+
+/**
+ * Game view of a dashboard for one santri: XP, level, streak, badges, rank and the next mission.
+ * dash: computeDashboard_ (Stage 1, counts units against each santri's target) or computeRecap_ (counts activities against `goal`).
+ */
+function computeQuest_(dash, studentId, opts) {
+  opts = opts || {};
+  var recap = dash.kind === 'recap';
+  var todayNum = dayNumber_(opts.today || dash.today);
+  var unit = recap ? 'aktivitas' : 'unit';
+  var players = (dash.students || []).map(function (s) {
+    var done = recap ? s.count : s.totalDone;
+    var goal = recap ? Math.max(1, toNum_(opts.goal, 10)) : (s.totalTarget > 0 ? s.totalTarget : Math.max(1, toNum_(opts.goal, 10)));
+    return { id: String(s.id), name: s.nickname || s.name, fullName: s.name, done: done, goal: goal, xp: Math.round(done * XP_PER_UNIT),
+      pct: Math.min(100, Math.round(done / goal * 100)), src: s };
+  });
+  var ranked = players.slice().sort(function (a, b) { return b.xp - a.xp || a.fullName.localeCompare(b.fullName); });
+  var rank = 0;
+  ranked.forEach(function (p, i) { p.rank = i > 0 && p.xp === ranked[i - 1].xp ? ranked[i - 1].rank : i + 1; });
+  var me = players.filter(function (p) { return p.id === String(studentId); })[0];
+  var board = ranked.slice(0, 5).map(function (p) { return { name: p.name, xp: p.xp, pct: p.pct, rank: p.rank, me: me && p.id === me.id }; });
+  if (!me) return { unit: unit, leaderboard: board, players: ranked.length };
+  rank = me.rank;
+  if (rank > 5) board.push({ name: me.name, xp: me.xp, pct: me.pct, rank: me.rank, me: true });
+
+  var s = me.src, days = {};
+  (s.reports || []).forEach(function (r) { var d = dayNumber_(r.date || r.submittedAt); if (d != null) days[d] = true; });
+  var dayNums = Object.keys(days).map(Number).sort(function (a, b) { return a - b; });
+  var st = streaks_(dayNums, todayNum);
+
+  var li = 0;
+  LEVELS.forEach(function (l, i) { if (me.pct >= l.min) li = i; });
+  var nextLevel = LEVELS[li + 1] || null;
+  var needForNext = nextLevel ? Math.max(1, Math.ceil(nextLevel.min / 100 * me.goal - me.done)) : 0;
+
+  var badges = [
+    { id: 'first', icon: '🎯', name: 'Langkah Pertama', desc: 'Kirim aktivitas pertama.', earned: me.done > 0 },
+    { id: 'streak3', icon: '🔥', name: 'Rajin 3 Hari', desc: 'Aktif 3 hari berturut-turut.', earned: st.best >= 3, progress: Math.min(st.best, 3) + '/3' },
+    { id: 'days5', icon: '📅', name: '5 Hari Aktif', desc: 'Kirim aktivitas di 5 hari berbeda.', earned: dayNums.length >= 5, progress: Math.min(dayNums.length, 5) + '/5' },
+    { id: 'half', icon: '🌗', name: 'Setengah Jalan', desc: 'Capai 50% target stage.', earned: me.pct >= 50, progress: me.pct + '%' },
+    { id: 'streak7', icon: '⚡', name: 'Seminggu Penuh', desc: 'Aktif 7 hari berturut-turut.', earned: st.best >= 7, progress: Math.min(st.best, 7) + '/7' }
+  ];
+  if (!recap) {
+    var cats = (dash.categories || []).filter(function (c) { return (s.target || {})[c.key] > 0; });
+    var covered = cats.filter(function (c) { return s.done[c.key] > 0; }).length;
+    if (cats.length > 1) badges.push({ id: 'allround', icon: '🧰', name: 'Serba Bisa', desc: 'Kerjakan minimal 1 unit di setiap kategori.', earned: covered === cats.length, progress: covered + '/' + cats.length });
+    if (s.status && s.status !== 'none') badges.push({ id: 'ontrack', icon: '📈', name: 'Tepat Jadwal', desc: 'Capaian sesuai atau di atas milestone hari ini.', earned: s.status === 'on-track' });
+  }
+  badges.push({ id: 'done', icon: '🏆', name: 'Stage Tuntas', desc: 'Capai 100% target stage.', earned: me.pct >= 100, progress: me.done + '/' + me.goal });
+
+  var mission;
+  if (me.pct >= 100) mission = 'Stage tuntas! Pertahankan, dan bantu teman yang belum selesai.';
+  else if (!me.done) mission = 'Kirim aktivitas pertamamu untuk membuka lencana 🎯 Langkah Pertama.';
+  else if (st.atRisk) mission = 'Kirim aktivitas hari ini supaya streak 🔥 ' + st.current + ' hari tidak putus.';
+  else if (!st.activeToday) mission = 'Mulai streak baru: kirim aktivitas hari ini.';
+  else mission = needForNext + ' ' + unit + ' lagi untuk naik ke level ' + nextLevel.icon + ' ' + nextLevel.name + '.';
+
+  return {
+    unit: unit, xpPerUnit: XP_PER_UNIT, xp: me.xp, done: me.done, goal: me.goal, pct: me.pct,
+    level: { index: li + 1, of: LEVELS.length, name: LEVELS[li].name, icon: LEVELS[li].icon },
+    next: nextLevel ? { name: nextLevel.name, icon: nextLevel.icon, need: needForNext } : null,
+    streak: st.current, bestStreak: st.best, activeToday: st.activeToday, streakAtRisk: st.atRisk, activeDays: dayNums.length,
+    badges: badges, earnedCount: badges.filter(function (b) { return b.earned; }).length,
+    rank: rank, players: ranked.length, leaderboard: board, mission: mission
+  };
+}
+
 /**
  * Validates a guest submission against the form definition.
  * Returns { values: {key: cellValue}, files: [fieldKey], errors: [msg], studentName }.
@@ -518,7 +608,7 @@ function sanitizeTable_(name, rows, ctx) {
   } else if (name === 'Stages') {
     out = stagesFrom_(rows).map(function (st) {
       return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order,
-        bannerFileId: st.bannerFileId, password: st.password };
+        bannerFileId: st.bannerFileId, password: st.password, goal: st.goal };
     });
     var pwSeen = {};
     out.forEach(function (st) {
@@ -650,6 +740,6 @@ if (typeof module !== 'undefined') {
     toBool_: toBool_, toNum_: toNum_, slugKey_: slugKey_, dayNumber_: dayNumber_, interpolateMilestone_: interpolateMilestone_,
     computeDashboard_: computeDashboard_, validateReport_: validateReport_, sanitizeTable_: sanitizeTable_,
     defaultBatchTables_: defaultBatchTables_, migrateFormFields_: migrateFormFields_, computeRecap_: computeRecap_,
-    stagesFrom_: stagesFrom_, REQUEST_KINDS: REQUEST_KINDS, TABLE_HEADERS: TABLE_HEADERS, renameLaporan_: renameLaporan_, renameLaporanRows_: renameLaporanRows_, stageForPassword_: stageForPassword_, publicStages_: publicStages_, defaultStage0Fields_: defaultStage0Fields_, STAGE_TABLES: STAGE_TABLES, answerHasOption_: answerHasOption_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
+    stagesFrom_: stagesFrom_, computeQuest_: computeQuest_, LEVELS: LEVELS, REQUEST_KINDS: REQUEST_KINDS, TABLE_HEADERS: TABLE_HEADERS, renameLaporan_: renameLaporan_, renameLaporanRows_: renameLaporanRows_, stageForPassword_: stageForPassword_, publicStages_: publicStages_, defaultStage0Fields_: defaultStage0Fields_, STAGE_TABLES: STAGE_TABLES, answerHasOption_: answerHasOption_, SCHEMA_VERSION: SCHEMA_VERSION, settingsToObject_: settingsToObject_, SYSTEM_FIELDS: SYSTEM_FIELDS
   };
 }

@@ -301,13 +301,16 @@
           '<label class="field"><span class="lbl">Nama stage</span><input data-st="name" value="' + esc(st.name) + '"></label>' +
           '<label class="field"><span class="lbl">Keterangan</span><input data-st="description" value="' + esc(st.description) + '"></label>' +
           '<label class="field"><span class="lbl">Password login santri</span><span class="help">Santri memilih nama lalu mengetik password ini untuk masuk ke stage ini.</span>' +
-          '<input data-st="password" value="' + esc(st.password || '') + '" autocomplete="off"></label></div>' +
+          '<input data-st="password" value="' + esc(st.password || '') + '" autocomplete="off"></label>' +
+          (st.key === 'stage0' ? '<label class="field"><span class="lbl">Target aktivitas untuk tuntas</span><span class="help">Jumlah aktivitas tiap santri untuk mencapai 100% dan lencana 🏆 Stage Tuntas.</span>' +
+            '<input type="number" min="1" data-st="goal" value="' + esc(st.goal || 10) + '"></label>' : '') + '</div>' +
           '<div class="row"><button class="btn" data-st-save>Simpan</button><span class="spacer"></span>' +
           (st.status === 'open' ? '<button class="btn danger" data-st-status="locked">Kunci stage</button>'
             : '<button class="btn primary" data-st-status="open">Buka untuk santri</button>') + '</div>';
         el.querySelector('[data-st-save]').onclick = function () {
           saveStage(st.key, { name: el.querySelector('[data-st="name"]').value, description: el.querySelector('[data-st="description"]').value,
-            password: el.querySelector('[data-st="password"]').value.trim() }, 'Stage tersimpan.');
+            password: el.querySelector('[data-st="password"]').value.trim(),
+            goal: el.querySelector('[data-st="goal"]') ? el.querySelector('[data-st="goal"]').value : st.goal }, 'Stage tersimpan.');
         };
         el.querySelector('[data-st-status]').onclick = function () {
           var to = this.getAttribute('data-st-status');

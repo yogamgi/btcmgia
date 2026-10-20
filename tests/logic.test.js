@@ -235,3 +235,45 @@ test('Log sheet and change-request kinds exist', () => {
   assert.ok(L.TABLE_HEADERS.Log.includes('status'));
   assert.deepStrictEqual(Object.keys(L.REQUEST_KINDS), ['koreksi', 'hapus']);
 });
+
+test('quest: Stage 0 XP, level, streak, badges and rank', () => {
+  const fields = L.defaultStage0Fields_();
+  const students = [{ id: 'S001', name: 'Abdul Latif', nickname: 'Abdul', active: 'true' }, { id: 'S002', name: 'Budi', active: 'true' }];
+  const rep = (id, st, day) => ({ id, student: st, submittedAt: '2026-10-' + day + ' 08:00:00', branch: 'Cabang 1', activities: 'Lainnya' });
+  const reports = [rep('a', 'S001', 18), rep('b', 'S001', 19), rep('c', 'S001', 20), rep('d', 'S001', 20), rep('e', 'S002', 15)];
+  const d = L.computeRecap_({ fields, students, reports });
+  const q = L.computeQuest_(d, 'S001', { today: '2026-10-20', goal: 8 });
+  assert.strictEqual(q.xp, 40);
+  assert.strictEqual(q.pct, 50);
+  assert.strictEqual(q.level.name, 'Pejuang');
+  assert.strictEqual(q.streak, 3);
+  assert.ok(q.activeToday);
+  assert.deepStrictEqual(q.badges.filter(b => b.earned).map(b => b.id), ['first', 'streak3', 'half']);
+  assert.strictEqual(q.rank, 1);
+  assert.strictEqual(q.next.need, 1); // 60% of 8 = 4.8 -> 5 activities
+  const b = L.computeQuest_(d, 'S002', { today: '2026-10-20', goal: 8 });
+  assert.strictEqual(b.streak, 0);
+  assert.strictEqual(b.rank, 2);
+  assert.match(b.mission, /streak baru/);
+  // Yesterday's streak is kept but at risk until today has an activity.
+  const y = L.computeQuest_(d, 'S001', { today: '2026-10-21', goal: 8 });
+  assert.strictEqual(y.streak, 3);
+  assert.ok(y.streakAtRisk);
+  assert.match(y.mission, /tidak putus/);
+});
+
+test('quest: Stage 1 uses unit targets', () => {
+  const t = batch();
+  const d = L.computeDashboard_({ settings: L.settingsToObject_(t.Settings), categories: t.Categories, students: t.Students,
+    milestones: t.Milestones, reports: [{ id: 'x', student: 'S002', category: 'android', units: 25, date: '2026-10-02' }], today: '2026-10-02' });
+  const q = L.computeQuest_(d, 'S002', { today: '2026-10-02' });
+  assert.strictEqual(q.unit, 'unit');
+  assert.strictEqual(q.xp, 250);
+  assert.strictEqual(q.goal, d.students.find(s => s.id === 'S002').totalTarget);
+  assert.ok(q.badges.some(b => b.id === 'done'));
+});
+
+test('stage goal defaults and survives sanitize', () => {
+  assert.strictEqual(L.stagesFrom_([])[0].goal, 10);
+  assert.strictEqual(L.sanitizeTable_('Stages', [{ key: 'stage0', goal: '15' }], {}).rows[0].goal, 15);
+});

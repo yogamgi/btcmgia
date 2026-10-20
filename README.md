@@ -40,6 +40,19 @@ They call the web app's `doPost` JSON API with `fetch` (no cookies, `text/plain`
 
 The login page shows the BTC logo (`docs/logo.png`). Santri pick their name and type a stage password. The password decides the stage (defaults `btc4stage0`, `btc4stage1`, `btc4stage2`; each is editable in Dev → stage tab and must be unique). An open stage shows its form with the name filled in and fixed; a locked stage shows a "wait until it is unlocked" screen with a "Cek lagi" button. The server checks the password on every submission and dashboard request and always files the report under the logged-in santri.
 
+## Game layer (santri pages)
+
+After login a santri sees a stage map (Stage 0 → 1 → 2, locked stages with a padlock) and a quest card:
+- **XP**: 1 activity (Stage 0) or 1 unit (Stage 1) = 10 XP.
+- **Level** by progress to the stage goal: 🌱 Rekrut, 🧭 Penjelajah (20%), ⚔️ Pejuang (40%), 🛠️ Ahli (60%), 🚀 Jagoan (80%), 🏆 Juara Stage (100%).
+  The goal is the santri's unit target in Stage 1, and "Target aktivitas untuk tuntas" on the Stage 0 card in Dev (default 10).
+- **Streak** 🔥 of consecutive days with an activity, rank 🏅 among santri, and a "Misi berikutnya" hint.
+- **Badges**: Langkah Pertama, Rajin 3 Hari, 5 Hari Aktif, Setengah Jalan, Seminggu Penuh, Stage Tuntas (+ Serba Bisa and Tepat Jadwal in Stage 1).
+- The form shows how many required questions are filled; each submit shows confetti, the XP gained, level-ups and new badges.
+- The dashboard tab opens with a top-5 leaderboard (plus the santri's own place).
+
+Everything is computed on the server from the activity sheets (`computeQuest_` in Logic.gs); nothing extra is stored.
+
 ## Change requests and the Dev bell
 
 On their own activity list in the dashboard, a logged-in santri sees **Ajukan perubahan** on each row. They pick

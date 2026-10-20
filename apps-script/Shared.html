@@ -254,10 +254,10 @@
     var html = '<div class="grid kpis" style="margin-bottom:16px">';
     if (selStudent) {
       html += kpi('Aktivitas', fmtNum(selStudent.count), esc(selStudent.name));
-      html += kpi('Terakhir lapor', esc(selStudent.last || '–'), '');
+      html += kpi('Terakhir aktif', esc(selStudent.last || '–'), '');
     } else {
       html += kpi('Total aktivitas', fmtNum(d.totals.reports), 'Semua santri');
-      html += kpi('Santri sudah lapor', d.totals.studentsReported + ' / ' + d.totals.students, '');
+      html += kpi('Santri sudah aktif', d.totals.studentsReported + ' / ' + d.totals.students, '');
     }
     html += '</div>';
 
@@ -277,10 +277,10 @@
       });
       if (!reps.length) html += '<tr><td colspan="' + (ask ? 4 : 3) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
     } else {
-      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah aktivitas</th><th>Terakhir lapor</th></tr></thead><tbody>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah aktivitas</th><th>Terakhir aktif</th></tr></thead><tbody>';
       students.forEach(function (s, i) {
         html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="num">' + fmtNum(s.count) + '</td><td>' +
-          (s.last ? esc(s.last) : '<span class="pill behind">Belum lapor</span>') + '</td></tr>';
+          (s.last ? esc(s.last) : '<span class="pill behind">Belum ada aktivitas</span>') + '</td></tr>';
       });
       if (!students.length) html += '<tr><td colspan="4" class="muted">Belum ada santri.</td></tr>';
     }

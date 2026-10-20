@@ -20,20 +20,21 @@
     <section id="home">
       <img class="logo" src="https://yogamgi.github.io/btcmgia/logo.png" alt="Boarding Technician Camp" width="640" height="335">
       <div class="card" style="max-width:420px;margin:0 auto 24px">
-        <h2>Masuk</h2>
-        <p class="muted">Pilih nama kamu dan masukkan password stage dari pembimbing.</p>
+        <h2>Mulai misimu 🚀</h2>
+        <p class="muted">Pilih nama kamu dan masukkan password stage dari pembimbing. Kirim aktivitas, kumpulkan XP dan lencana, lalu tuntaskan stage!</p>
         <div id="loginMsg"></div>
         <form id="loginForm" novalidate>
           <label class="field" for="loginStudent"><span class="lbl">Nama santri</span>
             <select id="loginStudent"><option value="">Memuat…</option></select></label>
           <label class="field" for="loginPw"><span class="lbl">Password</span>
             <input type="password" id="loginPw" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
-          <button class="btn primary" type="submit" id="loginBtn">Masuk</button>
+          <button class="btn primary" type="submit" id="loginBtn">Masuk ke misi</button>
         </form>
       </div>
     </section>
 
     <section id="lockedView" class="hidden">
+      <div class="journey" id="journeyLocked"></div>
       <div class="card" style="max-width:520px;margin:24px auto;text-align:center">
         <div style="font-size:40px">🔒</div>
         <h2 id="lockedTitle"></h2>
@@ -50,19 +51,23 @@
         <span class="muted" id="whoAmI"></span>
         <button class="btn sm" data-logout>Keluar</button>
       </div>
+      <div class="journey" id="journey"></div>
+      <div id="quest"></div>
       <nav class="tabs" id="tabs">
-        <button data-tab="form" class="active">Isi Aktivitas</button>
-        <button data-tab="dashboard">Dashboard</button>
+        <button data-tab="form" class="active">🎯 Isi Aktivitas</button>
+        <button data-tab="dashboard">🏆 Peringkat &amp; Dashboard</button>
       </nav>
       <section data-panel="form">
         <div class="card" style="max-width:720px">
           <h2 id="formTitle">Aktivitas</h2>
           <p class="muted" id="formDesc"></p>
           <div id="formMsg"></div>
+          <div id="formProgress" class="fprog hidden"><div class="row"><span id="formProgressText"></span></div><div class="bar"><span id="formProgressBar"></span></div></div>
           <form id="reportForm" novalidate></form>
         </div>
       </section>
       <section data-panel="dashboard" class="hidden">
+        <div id="leaderboard"></div>
         <h2 id="dashTitle" style="margin:0 0 12px">Dashboard</h2>
         <div id="dashboard"></div>
       </section>
@@ -142,6 +147,7 @@
       if (!r.form) {
         form = null;
         showOnly('lockedView');
+        renderJourney();
         document.getElementById('lockedTitle').textContent = stage.name;
         document.getElementById('lockedText').textContent = stage.status !== 'open'
           ? 'Halo ' + auth.studentName + ', ' + stage.name + ' masih terkunci. Tunggu sampai dibuka oleh pembimbing, lalu tekan "Cek lagi".'
@@ -160,6 +166,9 @@
       document.getElementById('formDesc').textContent = form.settings.formDescription;
       document.getElementById('dashTitle').textContent = form.settings.dashboardTitle;
       renderForm();
+      renderQuest(store.get(questKey(stage.key)));
+      renderJourney();
+      fetchDash(stage.key).catch(function (e) { loginExpired(e); });
       document.querySelector('#tabs [data-tab="' + (INITIAL_VIEW === 'dashboard' ? 'dashboard' : 'form') + '"]').click();
     }
 
@@ -209,6 +218,7 @@
         return '<option value="' + esc(s.id) + '"' + (s.id === cur ? ' selected' : '') + '>' + esc(s.name) + '</option>';
       }).join('');
       if (!stage) setBanner(p.banners && p.banners[''], '');
+      renderJourney();
     }
 
     // Banners load straight from Google's image servers; if that fails, the server sends the image itself.
@@ -250,10 +260,32 @@
         if (f.section && f.section !== section) { section = f.section; html += '<h3>' + esc(section) + '</h3>'; }
         html += fieldHtml(f);
       });
-      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim aktivitas</button>' +
+      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim aktivitas 🚀</button>' +
         '<button class="btn" type="submit" id="anotherBtn" data-another title="Simpan aktivitas ini lalu buka form kosong">Masukan aktivitas lainnya</button></div>';
       el.innerHTML = html;
+      updateFormProgress();
     }
+
+    /** "Misi form": how many required questions are answered, updated while the santri types. */
+    function updateFormProgress() {
+      var box = document.getElementById('formProgress'), el = document.getElementById('reportForm');
+      var req = form && form.settings.formOpen && el.elements.length ? form.fields.filter(function (f) { return f.required && f.type !== 'student'; }) : [];
+      box.classList.toggle('hidden', !req.length);
+      if (!req.length) return;
+      var filled = req.filter(function (f) {
+        if (f.type === 'checkbox' || f.type === 'radio' || f.type === 'category') return !!el.querySelector('input[name="' + f.key + '"]:checked');
+        var inp = el.elements[f.key];
+        if (!inp) return false;
+        return f.type === 'file' ? !!(inp.files && inp.files.length) : !!String(inp.value).trim();
+      }).length;
+      var pct = Math.round(filled / req.length * 100);
+      document.getElementById('formProgressBar').style.width = pct + '%';
+      document.getElementById('formProgressText').innerHTML = filled === req.length
+        ? '✅ Semua pertanyaan wajib terisi. Kirim untuk dapat XP!'
+        : '📝 Misi form: <strong>' + filled + '/' + req.length + '</strong> pertanyaan wajib terisi';
+      box.classList.toggle('complete', filled === req.length);
+    }
+    ['input', 'change'].forEach(function (ev) { document.getElementById('reportForm').addEventListener(ev, updateFormProgress); });
 
     function fieldHtml(f) {
       var id = 'f_' + f.key, name = esc(f.key), req = f.required ? ' required' : '';
@@ -352,7 +384,8 @@
       Promise.all(pending).then(function () {
         return call('apiSubmitReport', auth.batchId, answers, stageKey, creds());
       }).then(function () {
-        delete dash[stageKey];
+        delete dash[stageKey]; delete dashLoading[stageKey];
+        celebrate(stageKey);
         var ok = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
         if (another) return blankForm(ok + '<p class="muted">Aktivitas sebelumnya tersimpan. Silakan isi aktivitas berikutnya.</p>');
         // Like Google Forms: a thank-you screen with a way to send another report.
@@ -368,16 +401,129 @@
       });
     });
 
+    /** Dashboard data for a stage (with the santri's game stats in `quest`), fetched once and kept until the next submit. */
+    var dashLoading = {};
+    function fetchDash(key) {
+      if (dash[key]) return Promise.resolve(dash[key]);
+      if (dashLoading[key]) return dashLoading[key];
+      dashLoading[key] = call('apiGetDashboard', auth.batchId, key, creds()).then(function (d) {
+        dash[key] = d;
+        delete dashLoading[key];
+        if (d.quest) { store.set(questKey(key), d.quest); if (stage && stage.key === key) renderQuest(d.quest); }
+        return d;
+      }, function (e) { delete dashLoading[key]; throw e; });
+      return dashLoading[key];
+    }
+
     function loadDashboard() {
       var el = document.getElementById('dashboard');
       if (!auth || !stage) return;
       var key = stage.key;
-      if (dash[key]) { renderAnyDashboard(el, dash[key], dashState); return; }
-      el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
-      call('apiGetDashboard', auth.batchId, key, creds()).then(function (d) {
-        dash[key] = d;
-        if (stage && stage.key === key) renderAnyDashboard(el, d, dashState);
+      if (!dash[key]) el.innerHTML = '<div class="loading">Memuat dashboard…</div>';
+      fetchDash(key).then(function (d) {
+        if (!stage || stage.key !== key) return;
+        renderAnyDashboard(el, d, dashState);
+        renderLeaderboard(d.quest);
       }).catch(function (e) { if (!loginExpired(e)) el.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>'; });
+    }
+
+    // ------------------------------------------------------------ game layer: journey, quest card, leaderboard, celebration
+    function questKey(key) { return 'quest:' + auth.batchId + ':' + key + ':' + auth.student; }
+
+    /** Stage 0 → 1 → 2 path: the current stage glows, locked stages show a padlock. */
+    function renderJourney() {
+      var stages = (pub && pub.stages) || [];
+      if (!stages.length || !auth) return;
+      var q = stage && store.get(questKey(stage.key));
+      var html = stages.map(function (st, i) {
+        var cur = auth.stageKey === st.key, locked = st.status !== 'open';
+        var cls = 'node' + (cur ? ' current' : '') + (locked ? ' locked' : '') + (!cur && !locked && st.order < (stage ? stage.order : 0) ? ' passed' : '');
+        var icon = locked ? '🔒' : (cur && q && q.pct >= 100 ? '🏆' : cur ? '⭐' : '✔️');
+        var sub = cur ? (locked ? 'Menunggu dibuka' : q ? q.pct + '% selesai' : 'Kamu di sini') : (locked ? 'Terkunci' : 'Terbuka');
+        return (i ? '<span class="link' + (locked ? ' locked' : '') + '"></span>' : '') +
+          '<div class="' + cls + '"><div class="dot">' + icon + '</div><div class="nm">' + esc(st.name) + '</div><div class="st">' + esc(sub) + '</div></div>';
+      }).join('');
+      ['journey', 'journeyLocked'].forEach(function (id) { document.getElementById(id).innerHTML = html; });
+    }
+
+    function renderQuest(q) {
+      var el = document.getElementById('quest');
+      if (!q || q.xp == null) { el.innerHTML = ''; return; }
+      var earned = q.badges.filter(function (b) { return b.earned; });
+      el.innerHTML = '<div class="card quest">' +
+        '<div class="quest-top"><div class="lvl" title="Level ' + q.level.index + ' dari ' + q.level.of + '">' + q.level.icon + '</div>' +
+        '<div class="quest-main"><div class="quest-name">' + esc(auth.studentName) + '</div>' +
+        '<div class="muted">Level ' + q.level.index + ' · <strong>' + esc(q.level.name) + '</strong>' +
+        (q.next ? ' → ' + q.next.icon + ' ' + esc(q.next.name) : '') + '</div></div>' +
+        '<div class="quest-xp"><div class="xp">' + fmtNum(q.xp) + '</div><div class="muted">XP</div></div></div>' +
+        '<div class="bar big"><span style="width:' + q.pct + '%"></span></div>' +
+        '<div class="row quest-meta"><span>🎯 ' + fmtNum(q.done) + '/' + fmtNum(q.goal) + ' ' + esc(q.unit) + ' · <strong>' + q.pct + '%</strong></span><span class="spacer"></span>' +
+        '<span class="chip' + (q.streakAtRisk ? ' warn' : q.streak ? ' hot' : '') + '" title="Rekor: ' + q.bestStreak + ' hari">🔥 ' + q.streak + ' hari</span>' +
+        '<span class="chip" title="Peringkat dari ' + q.players + ' santri">🏅 #' + q.rank + ' / ' + q.players + '</span></div>' +
+        '<div class="mission">🧭 <strong>Misi berikutnya:</strong> ' + esc(q.mission) + '</div>' +
+        '<div class="badges" aria-label="Lencana">' + q.badges.map(function (b) {
+          return '<div class="badge-i' + (b.earned ? ' on' : '') + '" tabindex="0" title="' + esc(b.name + ': ' + b.desc + (b.earned ? ' (didapat)' : b.progress ? ' (' + b.progress + ')' : '')) + '">' +
+            '<span class="ic">' + (b.earned ? b.icon : '🔒') + '</span><span class="bn">' + esc(b.name) + '</span>' +
+            (!b.earned && b.progress ? '<span class="bp">' + esc(b.progress) + '</span>' : '') + '</div>';
+        }).join('') + '</div>' +
+        '<div class="muted small">' + earned.length + '/' + q.badges.length + ' lencana · 1 ' + esc(q.unit) + ' = ' + q.xpPerUnit + ' XP</div></div>';
+      renderJourney();
+    }
+
+    function renderLeaderboard(q) {
+      var el = document.getElementById('leaderboard');
+      if (!q || !q.leaderboard || !q.leaderboard.length) { el.innerHTML = ''; return; }
+      var medal = ['🥇', '🥈', '🥉'];
+      el.innerHTML = '<div class="card"><h2>🏆 Papan peringkat</h2><ol class="board">' + q.leaderboard.map(function (p) {
+        return '<li class="' + (p.me ? 'me' : '') + '"><span class="rk">' + (medal[p.rank - 1] || '#' + p.rank) + '</span><span class="nm">' + esc(p.name) + (p.me ? ' (kamu)' : '') +
+          '</span><span class="bar"><span style="width:' + p.pct + '%"></span></span><span class="xp">' + fmtNum(p.xp) + ' XP</span></li>';
+      }).join('') + '</ol></div>';
+    }
+
+    /** After a submit: confetti, the XP gained, and any level-up or new badges. */
+    function celebrate(key) {
+      var before = store.get(questKey(key));
+      confetti();
+      fetchDash(key).then(function (d) {
+        var q = d.quest;
+        if (!q || q.xp == null) return;
+        var gained = before ? q.xp - before.xp : q.xpPerUnit;
+        var had = {};
+        ((before && before.badges) || []).forEach(function (b) { if (b.earned) had[b.id] = true; });
+        var fresh = q.badges.filter(function (b) { return b.earned && !had[b.id]; });
+        var levelUp = before && q.level.index > before.level.index;
+        if (levelUp || fresh.length) confetti();
+        var m = modal('Mantap! 🎉', '<div class="celebrate">' +
+          '<div class="big-xp">+' + fmtNum(Math.max(gained, 0)) + ' XP</div>' +
+          (levelUp ? '<div class="lvlup">⬆️ Naik level! Sekarang <strong>' + q.level.icon + ' ' + esc(q.level.name) + '</strong></div>' : '') +
+          fresh.map(function (b) { return '<div class="new-badge"><span class="ic">' + b.icon + '</span><div><strong>Lencana baru: ' + esc(b.name) + '</strong><div class="muted">' + esc(b.desc) + '</div></div></div>'; }).join('') +
+          '<div class="bar big"><span style="width:' + q.pct + '%"></span></div>' +
+          '<p>' + fmtNum(q.done) + '/' + fmtNum(q.goal) + ' ' + esc(q.unit) + ' · ' + q.pct + '% stage · 🔥 ' + q.streak + ' hari · 🏅 #' + q.rank + '</p>' +
+          '<p class="muted">' + esc(q.mission) + '</p>' +
+          '<button class="btn primary" type="button" data-close>Lanjutkan misi</button></div>');
+        return m;
+      }).catch(function () {});
+    }
+
+    /** Small, dependency-free confetti burst; skipped when the device asks for reduced motion. */
+    function confetti() {
+      if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var c = document.createElement('canvas'), ctx = c.getContext('2d');
+      if (!ctx) return;
+      c.className = 'confetti';
+      c.width = innerWidth; c.height = innerHeight;
+      document.body.appendChild(c);
+      var colors = ['#0f6e5a', '#f5b301', '#e4572e', '#2d7ff9', '#9b5de5'];
+      var bits = [];
+      for (var i = 0; i < 120; i++) bits.push({ x: c.width / 2, y: c.height / 3, vx: (Math.random() - 0.5) * 14, vy: Math.random() * -12 - 4,
+        s: 4 + Math.random() * 5, r: Math.random() * 6, col: colors[i % colors.length] });
+      var t = 0;
+      (function frame() {
+        ctx.clearRect(0, 0, c.width, c.height);
+        bits.forEach(function (b) { b.vy += 0.35; b.x += b.vx; b.y += b.vy; b.r += 0.2; ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.r);
+          ctx.fillStyle = b.col; ctx.fillRect(-b.s / 2, -b.s / 2, b.s, b.s * 0.6); ctx.restore(); });
+        if (++t < 110) requestAnimationFrame(frame); else c.remove();
+      })();
     }
 
     /** "Ajukan perubahan": the santri asks the developer to correct or delete one of their own activities. */

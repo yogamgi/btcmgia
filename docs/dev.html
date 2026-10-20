@@ -113,6 +113,60 @@
   .log-item { border-bottom: 1px solid var(--border); padding: 8px 0; }
   .log-item:last-child { border-bottom: 0; }
   .log-item .meta { color: var(--muted); font-size: 12px; }
+  /* ---------- game layer ---------- */
+  .journey { display: flex; align-items: flex-start; justify-content: center; gap: 0; margin: 4px 0 14px; }
+  .journey:empty { display: none; }
+  .journey .node { display: flex; flex-direction: column; align-items: center; text-align: center; width: 104px; flex: 0 0 auto; }
+  .journey .dot { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 20px;
+    background: var(--surface); border: 2px solid var(--border); }
+  .journey .node.current .dot { border-color: var(--accent); background: var(--accent-2); box-shadow: 0 0 0 4px var(--accent-2); animation: pulse 2s ease-in-out infinite; }
+  .journey .node.locked .dot { opacity: .6; }
+  .journey .nm { font-size: 12px; font-weight: 600; margin-top: 6px; line-height: 1.25; }
+  .journey .st { font-size: 11px; color: var(--muted); }
+  .journey .link { flex: 1 1 24px; max-width: 80px; height: 3px; background: var(--accent); margin-top: 21px; border-radius: 2px; }
+  .journey .link.locked { background: repeating-linear-gradient(90deg, var(--border) 0 6px, transparent 6px 10px); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 8px transparent; } }
+  .quest { background: linear-gradient(135deg, var(--accent-2), var(--surface) 60%); }
+  .quest-top { display: flex; align-items: center; gap: 12px; }
+  .quest .lvl { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; font-size: 30px;
+    background: var(--surface); border: 2px solid var(--accent); flex: 0 0 auto; }
+  .quest-main { flex: 1; min-width: 0; }
+  .quest-name { font-weight: 700; font-size: 17px; }
+  .quest-xp { text-align: right; }
+  .quest-xp .xp { font-size: 26px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #f5b301); border-radius: inherit; transition: width .8s ease; }
+  .bar.big { height: 14px; margin: 12px 0 8px; }
+  .quest-meta { font-size: 14px; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 600; }
+  .chip.hot { border-color: #f5b301; }
+  .chip.warn { border-color: var(--danger); color: var(--danger); }
+  .mission { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px dashed var(--accent); font-size: 14px; }
+  .badges { display: flex; gap: 8px; margin: 10px -4px 6px; padding: 0 4px 4px; overflow-x: auto; scroll-snap-type: x proximity; }
+  .badge-i { flex: 0 0 84px; scroll-snap-align: start; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 8px 4px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface); opacity: .55; filter: grayscale(1); }
+  .badge-i.on { opacity: 1; filter: none; border-color: #f5b301; }
+  .badge-i .ic { font-size: 24px; }
+  .badge-i .bn { font-size: 11px; font-weight: 600; line-height: 1.2; margin-top: 2px; }
+  .badge-i .bp { font-size: 10px; color: var(--muted); }
+  .small { font-size: 12px; }
+  .fprog { margin: 0 0 14px; font-size: 14px; }
+  .fprog .bar { margin-top: 6px; }
+  .fprog.complete { color: var(--ok); font-weight: 600; }
+  ol.board { list-style: none; margin: 0; padding: 0; }
+  ol.board li { display: grid; grid-template-columns: 40px minmax(0, 1fr) 80px 72px; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 8px; }
+  ol.board li.me { background: var(--accent-2); font-weight: 700; }
+  ol.board .rk { font-size: 18px; text-align: center; }
+  ol.board .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ol.board .xp { text-align: right; font-size: 13px; }
+  .celebrate { text-align: center; }
+  .celebrate .big-xp { font-size: 44px; font-weight: 800; color: var(--accent); animation: pop .6s ease; }
+  .celebrate .lvlup { font-size: 16px; margin: 6px 0; }
+  .new-badge { display: flex; gap: 10px; align-items: center; text-align: left; margin: 8px auto; padding: 8px 12px; border: 1px solid #f5b301; border-radius: 10px; max-width: 360px; }
+  .new-badge .ic { font-size: 30px; }
+  @keyframes pop { 0% { transform: scale(.4); opacity: 0; } 70% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
+  canvas.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+  @media (prefers-reduced-motion: reduce) { .journey .node.current .dot, .celebrate .big-xp { animation: none; } .bar > span { transition: none; } }
+  @media (max-width: 480px) { .journey .node { width: 84px; } ol.board li { grid-template-columns: 34px minmax(0, 1fr) 56px 64px; } }
   .hidden { display: none !important; }
   .loading { padding: 32px; text-align: center; color: var(--muted); }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg);
@@ -502,10 +556,10 @@
     var html = '<div class="grid kpis" style="margin-bottom:16px">';
     if (selStudent) {
       html += kpi('Aktivitas', fmtNum(selStudent.count), esc(selStudent.name));
-      html += kpi('Terakhir lapor', esc(selStudent.last || '–'), '');
+      html += kpi('Terakhir aktif', esc(selStudent.last || '–'), '');
     } else {
       html += kpi('Total aktivitas', fmtNum(d.totals.reports), 'Semua santri');
-      html += kpi('Santri sudah lapor', d.totals.studentsReported + ' / ' + d.totals.students, '');
+      html += kpi('Santri sudah aktif', d.totals.studentsReported + ' / ' + d.totals.students, '');
     }
     html += '</div>';
 
@@ -525,10 +579,10 @@
       });
       if (!reps.length) html += '<tr><td colspan="' + (ask ? 4 : 3) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
     } else {
-      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah aktivitas</th><th>Terakhir lapor</th></tr></thead><tbody>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah aktivitas</th><th>Terakhir aktif</th></tr></thead><tbody>';
       students.forEach(function (s, i) {
         html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="num">' + fmtNum(s.count) + '</td><td>' +
-          (s.last ? esc(s.last) : '<span class="pill behind">Belum lapor</span>') + '</td></tr>';
+          (s.last ? esc(s.last) : '<span class="pill behind">Belum ada aktivitas</span>') + '</td></tr>';
       });
       if (!students.length) html += '<tr><td colspan="4" class="muted">Belum ada santri.</td></tr>';
     }
@@ -828,13 +882,16 @@
           '<label class="field"><span class="lbl">Nama stage</span><input data-st="name" value="' + esc(st.name) + '"></label>' +
           '<label class="field"><span class="lbl">Keterangan</span><input data-st="description" value="' + esc(st.description) + '"></label>' +
           '<label class="field"><span class="lbl">Password login santri</span><span class="help">Santri memilih nama lalu mengetik password ini untuk masuk ke stage ini.</span>' +
-          '<input data-st="password" value="' + esc(st.password || '') + '" autocomplete="off"></label></div>' +
+          '<input data-st="password" value="' + esc(st.password || '') + '" autocomplete="off"></label>' +
+          (st.key === 'stage0' ? '<label class="field"><span class="lbl">Target aktivitas untuk tuntas</span><span class="help">Jumlah aktivitas tiap santri untuk mencapai 100% dan lencana 🏆 Stage Tuntas.</span>' +
+            '<input type="number" min="1" data-st="goal" value="' + esc(st.goal || 10) + '"></label>' : '') + '</div>' +
           '<div class="row"><button class="btn" data-st-save>Simpan</button><span class="spacer"></span>' +
           (st.status === 'open' ? '<button class="btn danger" data-st-status="locked">Kunci stage</button>'
             : '<button class="btn primary" data-st-status="open">Buka untuk santri</button>') + '</div>';
         el.querySelector('[data-st-save]').onclick = function () {
           saveStage(st.key, { name: el.querySelector('[data-st="name"]').value, description: el.querySelector('[data-st="description"]').value,
-            password: el.querySelector('[data-st="password"]').value.trim() }, 'Stage tersimpan.');
+            password: el.querySelector('[data-st="password"]').value.trim(),
+            goal: el.querySelector('[data-st="goal"]') ? el.querySelector('[data-st="goal"]').value : st.goal }, 'Stage tersimpan.');
         };
         el.querySelector('[data-st-status]').onclick = function () {
           var to = this.getAttribute('data-st-status');

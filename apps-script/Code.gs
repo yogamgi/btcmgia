@@ -705,6 +705,7 @@ function dashboardFor_(meta, stageKey, allowLocked, auth) {
   dash.batch = { id: meta.id, name: meta.name, status: meta.status };
   dash.batches = publicBatchList_();
   if (!dash.batchName) dash.batchName = meta.name;
+  if (auth && auth.student) dash.quest = computeQuest_(dash, auth.student, { today: today_(), goal: st.goal });
   return dash;
 }
 
