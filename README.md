@@ -9,7 +9,7 @@ It is a Google Apps Script web app. All data lives in Google Drive/Sheets of the
 | Page | URL | Who | What |
 |---|---|---|---|
 | Guest | `<web app URL>` | Anyone with the link | Stage picker. Open stages show **Isi Laporan** (report form) and **Dashboard**; locked stages cannot be opened. `?stage=stage0` or `?stage=stage1` opens a stage directly, `&view=dashboard` opens its dashboard, `?batch=<id>` picks a batch. |
-| Dev | `<web app URL>?mode=dev` | Password protected | **Batch**, **Umum** (santri list shared by all stages, banner), and one area per stage: name, description, lock/unlock, form questions, reports, and a dashboard preview (also while locked). Stage 1 also has settings, device categories & targets, and milestones. |
+| Dev | `<web app URL>?mode=dev` | Password protected | **Batch**, **Umum** (santri list shared by all stages, banner), and one area per stage: name, description, lock/unlock, banner, form questions, reports, and a dashboard preview (also while locked). Stage 1 also has settings, device categories & default targets, per-santri targets (Target santri), and milestones. |
 
 **Stages.** Each stage is either open or locked (`Stages` sheet). Each stage can have its own banner (Dev → stage tab); a stage without one shows the main banner set in Dev → Umum, which also heads the stage picker. A new batch starts with Stage 0 open and Stages 1 and 2 locked. Stage 2 has no form yet; when unlocked, guests see "Segera hadir".
 

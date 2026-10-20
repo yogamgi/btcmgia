@@ -64,7 +64,7 @@
 
       <div data-panel="general" class="hidden">
         <div class="card"><h2>Santri (semua stage)</h2>
-          <p class="muted">Daftar ini dipakai form dan dashboard semua stage. Kolom target hanya untuk Stage 1; kosongkan untuk memakai target default kategori.
+          <p class="muted">Daftar ini dipakai form dan dashboard semua stage. Target per santri diatur di tab stage masing-masing.
             Santri nonaktif tidak muncul di form, tapi laporannya tetap dihitung.</p>
           <div id="ed_Students"></div></div>
         <div class="card" data-banner=""></div>
@@ -92,6 +92,7 @@
         <nav class="tabs" data-group="stage1">
           <button data-tab="Settings" class="active">Pengaturan</button>
           <button data-tab="Categories">Kategori &amp; Target</button>
+          <button data-tab="s1targets">Target santri</button>
           <button data-tab="FormFields">Form</button>
           <button data-tab="Milestones">Milestone</button>
           <button data-tab="s1rep">Laporan</button>
@@ -103,6 +104,9 @@
         <div data-group="stage1" data-panel="Categories" class="hidden"><div class="card"><h2>Kategori perangkat &amp; target default</h2>
           <p class="muted">Kategori menjadi pilihan "Jenis Perangkat" di form dan kolom Done/Target/Achievement di dashboard.</p>
           <div id="ed_Categories"></div></div></div>
+        <div data-group="stage1" data-panel="s1targets" class="hidden"><div class="card"><h2>Target per santri (Stage 1)</h2>
+          <p class="muted">Kosongkan untuk memakai target default kategori (tab Kategori &amp; Target). Santri baru ditambahkan di tab Umum.</p>
+          <div id="s1Targets"></div></div></div>
         <div data-group="stage1" data-panel="FormFields" class="hidden"><div class="card"><h2>Pertanyaan form Stage 1</h2>
           <p class="muted">Kolom "section" mengelompokkan pertanyaan. Pilihan untuk select/radio/checkbox ditulis satu per baris.
             Pertanyaan tanggal, nama santri, dan jenis perangkat dipakai dashboard sehingga tidak bisa dihapus (label dan urutannya bisa diubah).
@@ -204,6 +208,7 @@
       renderBanners();
       renderStageCards();
       renderEditors();
+      renderTargets();
       reportPanels.forEach(function (rp) { rp.render(); });
       refreshPreview();
     }
@@ -360,10 +365,8 @@
       if (name === 'Categories') return [{ key: 'label', label: 'Nama kategori' }, { key: 'key', label: 'Key' },
         { key: 'defaultTarget', label: 'Target default', type: 'number' }, { key: 'active', label: 'Aktif', type: 'bool' }];
       if (name === 'Students') {
+        // Targets are stage settings (Stage 1 → Target santri); the rows keep them, so saving here does not lose them.
         var cols = [{ key: 'name', label: 'Nama lengkap' }, { key: 'nickname', label: 'Panggilan' }, { key: 'active', label: 'Aktif', type: 'bool' }];
-        all.tables.Categories.rows.forEach(function (c) {
-          if (String(c.active) !== 'false') cols.push({ key: 'target:' + c.key, label: 'Target ' + c.label, type: 'number', placeholder: String(c.defaultTarget) });
-        });
         cols.push({ key: 'notes', label: 'Catatan' }, { key: 'id', label: 'ID', title: 'Dipakai laporan untuk mengenali santri. Kosongkan untuk dibuat otomatis.' });
         return cols;
       }
@@ -385,6 +388,52 @@
       ['Settings', 'Students', 'Categories', 'FormFields', 'Milestones', 'S0_FormFields'].forEach(function (name) {
         tableEditor(document.getElementById('ed_' + name), name, columnsFor(name), all.tables[name].rows);
       });
+    }
+
+    // ------------------------------------------------------------ Stage 1 targets per santri
+    function renderTargets() {
+      var el = document.getElementById('s1Targets');
+      var cats = all.tables.Categories.rows.filter(function (c) { return String(c.active) !== 'false'; });
+      var students = all.tables.Students.rows;
+      var html = '<div class="bulkbar row"><span>Isi semua santri:</span>' + cats.map(function (c) {
+        return '<label class="row"><span class="muted">' + esc(c.label) + '</span><input type="number" data-fill="' + esc(c.key) + '" placeholder="' + esc(c.defaultTarget) + '" style="width:90px"></label>';
+      }).join('') + '<button class="btn sm" data-t="fill">Terapkan</button></div>';
+      html += '<div class="table-wrap"><table class="editor"><thead><tr><th>No</th><th>Nama</th>' +
+        cats.map(function (c) { return '<th>Target ' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>';
+      students.forEach(function (s, i) {
+        html += '<tr data-id="' + esc(s.id) + '"><td class="muted">' + (i + 1) + '</td><td>' + esc(s.name) + (isTrue(s.active) ? '' : ' <span class="pill none">nonaktif</span>') + '</td>' +
+          cats.map(function (c) {
+            var v = s['target:' + c.key];
+            return '<td><input type="number" data-cat="' + esc(c.key) + '" value="' + esc(v == null ? '' : v) + '" placeholder="' + esc(c.defaultTarget) + '"></td>';
+          }).join('') + '</tr>';
+      });
+      if (!students.length) html += '<tr><td colspan="' + (cats.length + 2) + '" class="muted">Belum ada santri. Tambahkan di tab Umum.</td></tr>';
+      html += '</tbody></table></div><div class="row" style="margin-top:12px"><span class="spacer"></span>' +
+        '<span class="muted hidden" data-dirty>Ada perubahan yang belum disimpan</span><button class="btn primary" data-t="save">Simpan</button></div>';
+      el.innerHTML = html;
+      el.oninput = function () { el.querySelector('[data-dirty]').classList.remove('hidden'); };
+      el.onclick = function (e) {
+        var b = e.target.closest('[data-t]');
+        if (!b) return;
+        if (b.getAttribute('data-t') === 'fill') {
+          el.querySelectorAll('[data-fill]').forEach(function (f) {
+            if (f.value === '') return;
+            el.querySelectorAll('[data-cat="' + f.getAttribute('data-fill') + '"]').forEach(function (inp) { inp.value = f.value; });
+          });
+          el.querySelector('[data-dirty]').classList.remove('hidden');
+          return;
+        }
+        var byId = {};
+        el.querySelectorAll('tbody tr[data-id]').forEach(function (tr) { byId[tr.getAttribute('data-id')] = tr; });
+        var rows = students.map(function (s) {
+          var r = Object.assign({}, s), tr = byId[s.id];
+          if (tr) tr.querySelectorAll('[data-cat]').forEach(function (inp) { r['target:' + inp.getAttribute('data-cat')] = inp.value; });
+          return r;
+        });
+        b.disabled = true; b.textContent = 'Menyimpan…';
+        devCall('apiDevSaveTable', all.batch.id, 'Students', rows).then(function (d) { apply(d); toast('Target tersimpan.'); })
+          .catch(function (err) { toast(err.message); b.disabled = false; b.textContent = 'Simpan'; });
+      };
     }
 
     function isTrue(v) { return v === true || String(v).toLowerCase() === 'true'; }
