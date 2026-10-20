@@ -204,3 +204,9 @@ test('stage 0 submission and recap: activities with commas are tallied correctly
   assert.deepStrictEqual(act, [1, 0, 1, 1]);
   assert.deepStrictEqual(r.tallies.find(t => t.key === 'branch').items.map(i => i.count), [1, 1, 0]);
 });
+
+test('stage banner id survives a stage save', () => {
+  const rows = L.sanitizeTable_('Stages', [{ key: 'stage0', status: 'open', bannerFileId: 'abc' }], {}).rows;
+  assert.strictEqual(rows[0].bannerFileId, 'abc');
+  assert.strictEqual(rows[1].bannerFileId, '');
+});

@@ -50,7 +50,7 @@ var TABLE_HEADERS = {
   FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
   Milestones: ['day', 'units'],
   Reports: ['id', 'submittedAt', 'updatedAt', 'studentName'],
-  Stages: ['key', 'name', 'description', 'status', 'order'],
+  Stages: ['key', 'name', 'description', 'status', 'order', 'bannerFileId'],
   S0_FormFields: ['key', 'label', 'type', 'options', 'required', 'order', 'section', 'help', 'active'],
   S0_Reports: ['id', 'submittedAt', 'updatedAt', 'studentName']
 };
@@ -70,7 +70,7 @@ function stagesFrom_(rows) {
     return { key: d.key, name: String(r.name || '').trim() || d.name,
       description: r.description == null ? d.description : String(r.description),
       status: r.status === 'open' || r.status === 'locked' ? r.status : d.status,
-      order: i + 1, ready: !!STAGE_TABLES[d.key] };
+      order: i + 1, ready: !!STAGE_TABLES[d.key], bannerFileId: String(r.bannerFileId || '') };
   });
 }
 
@@ -482,7 +482,7 @@ function sanitizeTable_(name, rows, ctx) {
     });
   } else if (name === 'Stages') {
     out = stagesFrom_(rows).map(function (st) {
-      return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order };
+      return { key: st.key, name: st.name, description: st.description, status: st.status, order: st.order, bannerFileId: st.bannerFileId };
     });
   } else if (name === 'FormFields' || name === 'S0_FormFields') {
     var SYS = systemFieldsFor_(name);

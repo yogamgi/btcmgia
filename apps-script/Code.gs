@@ -425,10 +425,19 @@ function saveUpload_(meta, file, studentName) {
   return folder.createFile(blob).getUrl();
 }
 
-/** Banner image for the guest header as a data URL, or '' when none is set. */
-function apiGetBanner(batchId) {
+/**
+ * Banner image for the guest header as a data URL, or '' when none is set.
+ * With stageKey: that stage's banner, falling back to the main banner unless `exact` (Dev preview).
+ */
+function apiGetBanner(batchId, stageKey, exact) {
   var meta = resolveBatch_(batchId);
-  var id = settingsToObject_(readTable_(SpreadsheetApp.openById(meta.spreadsheetId), 'Settings').rows).bannerFileId;
+  var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+  var id = '';
+  if (stageKey) {
+    var st = stagesFrom_(readTable_(ss, 'Stages').rows).filter(function (x) { return x.key === stageKey; })[0];
+    id = st ? st.bannerFileId : '';
+  }
+  if (!id && !(stageKey && exact)) id = settingsToObject_(readTable_(ss, 'Settings').rows).bannerFileId;
   if (!id) return '';
   try {
     var blob = DriveApp.getFileById(String(id)).getBlob();
@@ -622,8 +631,11 @@ function apiDevDeleteReport(token, batchId, ids, stageKey) {
   return apiDevGetAll(token, meta.id);
 }
 
-/** file: { name, mimeType, data(base64) } to set the banner, or null to remove it. */
-function apiDevSetBanner(token, batchId, file) {
+/**
+ * file: { name, mimeType, data(base64) } to set the banner, or null to remove it.
+ * stageKey: set that stage's own banner; omitted = the main banner (stage picker and fallback).
+ */
+function apiDevSetBanner(token, batchId, file, stageKey) {
   requireDev_(token);
   var meta = resolveBatch_(batchId);
   var fileId = '';
@@ -636,6 +648,13 @@ function apiDevSetBanner(token, batchId, file) {
   }
   withLock_(function () {
     var ss = SpreadsheetApp.openById(meta.spreadsheetId);
+    if (stageKey) {
+      var stages = stagesFrom_(readTable_(ss, 'Stages').rows);
+      if (!stages.some(function (x) { return x.key === stageKey; })) throw new Error('Stage tidak dikenal: ' + stageKey);
+      stages.forEach(function (x) { if (x.key === stageKey) x.bannerFileId = fileId; });
+      writeTable_(ss, 'Stages', TABLE_HEADERS.Stages, sanitizeTable_('Stages', stages, {}).rows);
+      return;
+    }
     var rows = readTable_(ss, 'Settings').rows;
     var found = false;
     rows.forEach(function (r) { if (r.key === 'bannerFileId') { r.value = fileId; found = true; } });

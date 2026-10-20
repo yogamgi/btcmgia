@@ -82,9 +82,12 @@
       });
     }
 
-    function loadBanner(batchId) {
-      call('apiGetBanner', batchId).then(function (url) {
-        if (!pub || pub.batch.id !== batchId) return;
+    // Main banner on the stage picker; each stage shows its own (the server falls back to the main one).
+    var bannerReq = 0;
+    function loadBanner(batchId, stageKey) {
+      var req = ++bannerReq;
+      call('apiGetBanner', batchId, stageKey || '').then(function (url) {
+        if (req !== bannerReq || !pub || pub.batch.id !== batchId) return;
         document.getElementById('bannerImg').src = url || '';
         document.getElementById('banner').classList.toggle('hidden', !url);
       }).catch(function () { document.getElementById('banner').classList.add('hidden'); });
@@ -105,6 +108,7 @@
     }
 
     function showHome() {
+      if (stage && pub) loadBanner(pub.batch.id);
       stage = null;
       document.getElementById('home').classList.remove('hidden');
       document.getElementById('stageView').classList.add('hidden');
@@ -118,6 +122,7 @@
       document.getElementById('home').classList.add('hidden');
       document.getElementById('stageView').classList.remove('hidden');
       document.getElementById('stageTitle').textContent = stage.name;
+      loadBanner(pub.batch.id, key);
       document.getElementById('formTitle').textContent = form.settings.formTitle;
       document.getElementById('formDesc').textContent = form.settings.formDescription;
       document.getElementById('dashTitle').textContent = form.settings.dashboardTitle;

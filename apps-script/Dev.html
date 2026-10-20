@@ -67,17 +67,12 @@
           <p class="muted">Daftar ini dipakai form dan dashboard semua stage. Kolom target hanya untuk Stage 1; kosongkan untuk memakai target default kategori.
             Santri nonaktif tidak muncul di form, tapi laporannya tetap dihitung.</p>
           <div id="ed_Students"></div></div>
-        <div class="card"><h2>Banner halaman Guest</h2>
-          <p class="muted">Gambar ini tampil paling atas di halaman Guest (pilihan stage, form, dan dashboard) untuk batch ini. Disarankan gambar lebar, misalnya 1600 × 400 px.</p>
-          <div id="bannerPreview" class="banner" style="margin-bottom:12px"></div>
-          <div class="row"><input type="file" id="bannerFile" accept="image/*" style="max-width:320px">
-            <button class="btn primary" id="bannerUpload">Upload banner</button>
-            <button class="btn danger" id="bannerRemove">Hapus banner</button></div>
-        </div>
+        <div class="card" data-banner=""></div>
       </div>
 
       <div data-panel="stage0" class="hidden">
         <div class="card" data-stage-card="stage0"></div>
+        <div class="card" data-banner="stage0"></div>
         <nav class="tabs" data-group="stage0">
           <button data-tab="s0form" class="active">Form</button>
           <button data-tab="s0rep">Laporan</button>
@@ -93,6 +88,7 @@
 
       <div data-panel="stage1" class="hidden">
         <div class="card" data-stage-card="stage1"></div>
+        <div class="card" data-banner="stage1"></div>
         <nav class="tabs" data-group="stage1">
           <button data-tab="Settings" class="active">Pengaturan</button>
           <button data-tab="Categories">Kategori &amp; Target</button>
@@ -122,6 +118,7 @@
 
       <div data-panel="stage2" class="hidden">
         <div class="card" data-stage-card="stage2"></div>
+        <div class="card" data-banner="stage2"></div>
         <div class="notice info">Form dan dashboard Stage 2 belum dibuat. Selama terkunci, Guest melihat stage ini sebagai "Terkunci"; jika dibuka, Guest melihat "Segera hadir".</div>
       </div>
     </section>
@@ -204,7 +201,7 @@
       document.getElementById('lnkFolder').href = data.urls.folder;
       document.getElementById('lnkGuest').href = data.urls.app + '?batch=' + encodeURIComponent(b.id);
       renderBatches();
-      renderBanner();
+      renderBanners();
       renderStageCards();
       renderEditors();
       reportPanels.forEach(function (rp) { rp.render(); });
@@ -298,36 +295,56 @@
         .catch(function (e) { toast(e.message); });
     });
 
-    // ------------------------------------------------------------ banner
-    var bannerShownFor = null;
-    function renderBanner() {
-      var id = (all.tables.Settings.rows.filter(function (r) { return r.key === 'bannerFileId'; })[0] || {}).value || '';
-      var key = all.batch.id + '|' + id;
-      if (bannerShownFor === key) return;
-      bannerShownFor = key;
-      var box = document.getElementById('bannerPreview');
-      document.getElementById('bannerRemove').disabled = !id;
-      if (!id) { box.innerHTML = '<p class="muted" style="line-height:1.5">Belum ada banner.</p>'; return; }
-      box.innerHTML = '<p class="muted" style="line-height:1.5">Memuat…</p>';
-      call('apiGetBanner', all.batch.id).then(function (url) {
-        box.innerHTML = url ? '<img src="' + url + '" alt="Banner">' : '<p class="muted" style="line-height:1.5">File banner tidak ditemukan.</p>';
+    // ------------------------------------------------------------ banners (main + one per stage)
+    var bannerShownFor = {};
+    function bannerId(stageKey) {
+      if (!stageKey) return (all.tables.Settings.rows.filter(function (r) { return r.key === 'bannerFileId'; })[0] || {}).value || '';
+      return (stageRows().filter(function (r) { return r.key === stageKey; })[0] || {}).bannerFileId || '';
+    }
+
+    function renderBanners() {
+      document.querySelectorAll('[data-banner]').forEach(function (el) {
+        var stageKey = el.getAttribute('data-banner');
+        if (!el.innerHTML) buildBannerCard(el, stageKey);
+        var id = bannerId(stageKey), key = all.batch.id + '|' + id;
+        if (bannerShownFor[stageKey] === key) return;
+        bannerShownFor[stageKey] = key;
+        var box = el.querySelector('[data-bn-preview]');
+        el.querySelector('[data-bn-remove]').disabled = !id;
+        if (!id) {
+          box.innerHTML = '<p class="muted" style="line-height:1.5">' + (stageKey ? 'Belum ada banner khusus. Stage ini memakai banner utama (tab Umum).' : 'Belum ada banner.') + '</p>';
+          return;
+        }
+        box.innerHTML = '<p class="muted" style="line-height:1.5">Memuat…</p>';
+        call('apiGetBanner', all.batch.id, stageKey, true).then(function (url) {
+          box.innerHTML = url ? '<img src="' + url + '" alt="Banner">' : '<p class="muted" style="line-height:1.5">File banner tidak ditemukan.</p>';
+        });
       });
     }
 
-    document.getElementById('bannerUpload').addEventListener('click', function () {
-      var file = document.getElementById('bannerFile').files[0], btn = this;
-      if (!file) return toast('Pilih gambar dulu.');
-      btn.disabled = true; btn.textContent = 'Mengupload…';
-      readFile(file, 2000).then(function (f) { return devCall('apiDevSetBanner', all.batch.id, f); })
-        .then(function (d) { document.getElementById('bannerFile').value = ''; apply(d); toast('Banner tersimpan.'); })
-        .catch(function (e) { toast(e.message); })
-        .then(function () { btn.disabled = false; btn.textContent = 'Upload banner'; });
-    });
-
-    document.getElementById('bannerRemove').addEventListener('click', function () {
-      if (!confirm('Hapus banner dari halaman Guest?')) return;
-      devCall('apiDevSetBanner', all.batch.id, null).then(function (d) { apply(d); toast('Banner dihapus.'); }).catch(function (e) { toast(e.message); });
-    });
+    function buildBannerCard(el, stageKey) {
+      el.innerHTML = (stageKey
+        ? '<h2>Banner stage ini</h2><p class="muted">Tampil paling atas saat santri membuka stage ini (form dan dashboard). Kosongkan untuk memakai banner utama.'
+        : '<h2>Banner utama</h2><p class="muted">Tampil di halaman pilihan stage, dan di setiap stage yang tidak punya banner sendiri.') +
+        ' Disarankan gambar lebar, misalnya 1600 × 400 px.</p>' +
+        '<div class="banner" data-bn-preview style="margin-bottom:12px"></div>' +
+        '<div class="row"><input type="file" data-bn-file accept="image/*" style="max-width:320px">' +
+        '<button class="btn primary" data-bn-upload>Upload banner</button><button class="btn danger" data-bn-remove>Hapus banner</button></div>';
+      var input = el.querySelector('[data-bn-file]');
+      el.querySelector('[data-bn-upload]').addEventListener('click', function () {
+        var file = input.files[0], btn = this;
+        if (!file) return toast('Pilih gambar dulu.');
+        btn.disabled = true; btn.textContent = 'Mengupload…';
+        readFile(file, 2000).then(function (f) { return devCall('apiDevSetBanner', all.batch.id, f, stageKey); })
+          .then(function (d) { input.value = ''; apply(d); toast('Banner tersimpan.'); })
+          .catch(function (e) { toast(e.message); })
+          .then(function () { btn.disabled = false; btn.textContent = 'Upload banner'; });
+      });
+      el.querySelector('[data-bn-remove]').addEventListener('click', function () {
+        if (!confirm(stageKey ? 'Hapus banner stage ini? Stage akan memakai banner utama.' : 'Hapus banner utama?')) return;
+        devCall('apiDevSetBanner', all.batch.id, null, stageKey).then(function (d) { apply(d); toast('Banner dihapus.'); }).catch(function (e) { toast(e.message); });
+      });
+    }
 
     // ------------------------------------------------------------ table editors
     var FIELD_TYPES = [['text', 'Jawaban singkat'], ['textarea', 'Paragraf'], ['number', 'Angka'], ['date', 'Tanggal'], ['select', 'Dropdown'],
