@@ -142,7 +142,8 @@
         if (f.section && f.section !== section) { section = f.section; html += '<h3>' + esc(section) + '</h3>'; }
         html += fieldHtml(f);
       });
-      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim laporan</button></div>';
+      html += '<div class="row"><button class="btn primary" type="submit" id="submitBtn">Kirim laporan</button>' +
+        '<button class="btn" type="submit" id="anotherBtn" data-another title="Simpan laporan ini lalu buka form kosong">Masukan laporan lainnya</button></div>';
       el.innerHTML = html;
     }
 
@@ -197,8 +198,21 @@
       box.innerHTML = /^video\//.test(file.type) ? '<video src="' + url + '" muted controls></video>' : '<img src="' + url + '" alt="">';
     });
 
+    /** Shows the blank form again, e.g. after "Masukan laporan lainnya". */
+    function blankForm(notice) {
+      renderForm();
+      if (notice) document.getElementById('formMsg').innerHTML = notice;
+      document.getElementById('formTitle').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    document.getElementById('formMsg').addEventListener('click', function (e) {
+      if (e.target.closest('[data-new-report]')) blankForm();
+    });
+
     document.getElementById('reportForm').addEventListener('submit', function (e) {
       e.preventDefault();
+      // "Masukan laporan lainnya": save this report, then reopen the same form blank.
+      var another = !!(e.submitter && e.submitter.hasAttribute('data-another'));
       var el = e.target, answers = {}, missing = [], pending = [];
       form.fields.forEach(function (f) {
         if (f.type === 'checkbox') {
@@ -223,25 +237,24 @@
         msg.scrollIntoView({ behavior: 'smooth' });
         return;
       }
-      var btn = document.getElementById('submitBtn'), stageKey = stage.key;
-      btn.disabled = true; btn.textContent = 'Mengirim…';
+      var btn = another ? document.getElementById('anotherBtn') : document.getElementById('submitBtn'), stageKey = stage.key, label = btn.textContent;
+      el.querySelectorAll('button[type=submit]').forEach(function (b) { b.disabled = true; });
+      btn.textContent = 'Mengirim…';
       Promise.all(pending).then(function () {
         return call('apiSubmitReport', pub.batch.id, answers, stageKey);
       }).then(function () {
-        msg.innerHTML = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
-        // Keep name and date so the same santri can quickly send another report.
-        var keep = {};
-        ['student', 'date'].forEach(function (k) { if (el.elements[k]) keep[k] = el.elements[k].value; });
-        el.reset();
-        el.querySelectorAll('.file-preview').forEach(function (b) { b.innerHTML = ''; });
-        Object.keys(keep).forEach(function (k) { el.elements[k].value = keep[k]; });
         delete dash[stageKey];
+        var ok = '<div class="notice ok">' + esc(form.settings.successMessage) + '</div>';
+        if (another) return blankForm(ok + '<p class="muted">Laporan sebelumnya tersimpan. Silakan isi laporan berikutnya.</p>');
+        // Like Google Forms: a thank-you screen with a way to send another report.
+        el.innerHTML = '';
+        msg.innerHTML = ok + '<div class="row"><button class="btn primary" type="button" data-new-report>Masukan laporan lainnya</button></div>';
         msg.scrollIntoView({ behavior: 'smooth' });
       }).catch(function (err) {
         msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>';
         msg.scrollIntoView({ behavior: 'smooth' });
-      }).then(function () {
-        btn.disabled = false; btn.textContent = 'Kirim laporan';
+        el.querySelectorAll('button[type=submit]').forEach(function (b) { b.disabled = false; });
+        btn.textContent = label;
       });
     });
 
