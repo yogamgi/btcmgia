@@ -203,7 +203,7 @@
       }).join('');
       document.getElementById('lnkSheet').href = data.urls.spreadsheet;
       document.getElementById('lnkFolder').href = data.urls.folder;
-      document.getElementById('lnkGuest').href = data.urls.app + '?batch=' + encodeURIComponent(b.id);
+      document.getElementById('lnkGuest').href = (data.urls.guest || data.urls.app) + '?batch=' + encodeURIComponent(b.id);
       renderBatches();
       renderBanners();
       renderStageCards();

@@ -19,6 +19,12 @@ It is a Google Apps Script web app. All data lives in Google Drive/Sheets of the
 
 **Form** questions are fully editable from the Dev page (text, paragraph, number, date, dropdown, multiple choice, checkboxes, file upload, grouped by section). The questions a dashboard depends on (Stage 1: date, santri name, device type; Stage 0: santri name) can be relabelled or moved but not deleted. Photos are saved in the batch's `Uploads` folder.
 
+## Guest page for every visitor (GitHub Pages)
+
+Pages served by script.google.com fail with "Maaf, saat ini tidak dapat membuka file" for visitors signed in to more than one Google account (a long-standing Apps Script bug). So the Guest page is also published as a static site at **https://yogamgi.github.io/btcmgia/**, built by `scripts/build-guest.js` into `docs/` and served by GitHub Pages (branch `claude/stage1-akademi-btc-3tzhxg`, folder `/docs`). It calls the web app's `doPost` JSON API with `fetch` (no cookies, `text/plain`), which works for everyone. Only the four Guest functions are reachable that way; Dev stays on `?mode=dev`. The same `?stage=`, `?view=` and `?batch=` parameters work there.
+
+After changing a Guest page file, run `npm run build` and commit `docs/` too. The API URL inside it is the fixed deployment ID, so redeploys need no rebuild.
+
 ## How batches stay separate
 
 ```

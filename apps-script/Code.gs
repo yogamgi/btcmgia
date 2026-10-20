@@ -18,6 +18,11 @@ var APP_NAME = 'BTC - Boarding Technician Camp';
 var DEFAULT_ROOT_FOLDER_NAME = 'Akademi BTC - Stage 1';
 var REGISTRY_FILE_NAME = 'Akademi BTC Stage 1 - Registry';
 var REGISTRY_HEADERS = ['id', 'name', 'spreadsheetId', 'folderId', 'status', 'isDefault', 'createdAt'];
+// Guest page outside script.google.com (GitHub Pages, built by scripts/build-guest.js). It talks to doPost,
+// which keeps working for visitors signed in to several Google accounts, unlike HtmlService pages.
+var GUEST_PAGE_URL = 'https://yogamgi.github.io/btcmgia/';
+// Functions the static Guest page may call through doPost. Dev functions are never reachable this way.
+var PUBLIC_API = ['apiGetPublic', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner'];
 var DEV_SESSION_SECONDS = 6 * 60 * 60;
 var MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -36,6 +41,20 @@ function doGet(e) {
     .setTitle(APP_NAME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** JSON API for the static Guest page. Body (sent as text/plain to skip CORS preflight): { fn, args }. */
+function doPost(e) {
+  var out;
+  try {
+    var req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (PUBLIC_API.indexOf(req.fn) < 0) throw new Error('Fungsi tidak dikenal.');
+    var fns = { apiGetPublic: apiGetPublic, apiSubmitReport: apiSubmitReport, apiGetDashboard: apiGetDashboard, apiGetBanner: apiGetBanner };
+    out = { ok: true, result: fns[req.fn].apply(null, Array.isArray(req.args) ? req.args : []) };
+  } catch (err) {
+    out = { ok: false, error: String(err && err.message || err) };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
 // The single-file build (dist/Code.gs) defines HTML_FILES; the multi-file project uses real HTML files.
@@ -534,7 +553,8 @@ function apiDevGetAll(token, batchId) {
       folder: DriveApp.getFolderById(meta.folderId).getUrl(),
       root: getRootFolder_().getUrl(),
       registry: SpreadsheetApp.openById(props_().getProperty('REGISTRY_ID')).getUrl(),
-      app: ScriptApp.getService().getUrl()
+      app: ScriptApp.getService().getUrl(),
+      guest: GUEST_PAGE_URL
     }
   };
 }
