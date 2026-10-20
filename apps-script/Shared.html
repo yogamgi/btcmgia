@@ -1,0 +1,387 @@
+<script>
+  /** One server call through google.script.run (the static pages replace this with fetch). */
+  function rawCall(fn, args) {
+    return new Promise(function (resolve, reject) {
+      var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+        var err = e && e.message ? e : new Error(String(e));
+        err.transient = /network|NetworkError|timed? ?out|too many|try again|Service (error|invoked)|Internal error|Server error|Lock timeout|unavailable/i.test(err.message);
+        reject(err);
+      });
+      r[fn].apply(r, args);
+    });
+  }
+
+  // Guest calls are safe to repeat (a resent report carries the same id and is stored once), so a dropped
+  // connection or a busy server is retried a few times before the page shows an error.
+  var RETRYABLE = ['apiGetPublic', 'apiGetStage', 'apiGuestLogin', 'apiSubmitReport', 'apiGetDashboard', 'apiGetBanner', 'apiDevGetAll', 'apiDevGetDashboard', 'apiDevGetLog'];
+
+  /** Promise wrapper for server calls: call('apiX', arg1, arg2) */
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    var tries = RETRYABLE.indexOf(fn) >= 0 ? 4 : 1;
+    function attempt(n) {
+      return rawCall(fn, args).catch(function (err) {
+        if (!err.transient || n + 1 >= tries) {
+          if (err.transient) err.message = 'Koneksi ke server bermasalah. Periksa internet lalu coba lagi.';
+          throw err;
+        }
+        return new Promise(function (r) { setTimeout(r, 1500 * Math.pow(2, n)); }).then(function () { return attempt(n + 1); });
+      });
+    }
+    return attempt(0);
+  }
+
+  /** Small per-device memory (last good data, login). Never required: private mode or full storage just skips it. */
+  var store = {
+    get: function (k) { try { return JSON.parse(localStorage.getItem('btc:' + k) || 'null'); } catch (e) { return null; } },
+    set: function (k, v) { try { v == null ? localStorage.removeItem('btc:' + k) : localStorage.setItem('btc:' + k, JSON.stringify(v)); } catch (e) {} }
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  /**
+   * Reads a file as { name, mimeType, data(base64) }. Photos are shrunk to `maxDim` px on the long side
+   * and re-encoded as JPEG so uploads stay small on phone connections; other files are sent as-is (max 10 MB).
+   */
+  function readFile(file, maxDim) {
+    var isPhoto = /^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type);
+    return new Promise(function (resolve, reject) {
+      if (!isPhoto && file.size > 10 * 1024 * 1024) return reject(new Error('File "' + file.name + '" lebih dari 10 MB.'));
+      var r = new FileReader();
+      r.onerror = function () { reject(new Error('Gagal membaca file "' + file.name + '".')); };
+      r.onload = function () {
+        var raw = { name: file.name, mimeType: file.type || 'application/octet-stream', data: String(r.result).split(',')[1] };
+        if (!isPhoto) return resolve(raw);
+        var img = new Image();
+        img.onerror = function () {
+          if (file.size > 10 * 1024 * 1024) reject(new Error('File "' + file.name + '" lebih dari 10 MB.'));
+          else resolve(raw); // format the browser cannot draw (e.g. HEIC on some devices): send original
+        };
+        img.onload = function () {
+          var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          var c = document.createElement('canvas');
+          c.width = Math.round(img.width * scale);
+          c.height = Math.round(img.height * scale);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          resolve({ name: file.name.replace(/\.[^.]+$/, '') + '.jpg', mimeType: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] });
+        };
+        img.src = r.result;
+      };
+      r.readAsDataURL(file);
+    });
+  }
+
+  function fmtPct(v) { return v == null ? '–' : (Math.round(v) + '%'); }
+  function fmtNum(v) { return v == null ? '–' : (Math.round(v * 10) / 10).toLocaleString('id-ID'); }
+
+  var toastTimer;
+  function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 3000);
+  }
+
+  /**
+   * Tab bar: clicking a [data-tab] button shows the matching [data-panel]. Panels belong to the bar whose
+   * data-group matches theirs, so tab bars can be nested (no data-group = the page's main tabs).
+   */
+  /** Simple dialog: modal(title, bodyHtml) returns { el, close }. Closes on the ✕ button, Escape, or a click outside. */
+  function modal(title, bodyHtml) {
+    var wrap = document.createElement('div');
+    wrap.className = 'modal-bg';
+    wrap.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><div class="row modal-head"><h2>' + esc(title) +
+      '</h2><span class="spacer"></span><button class="btn sm" type="button" data-close aria-label="Tutup">✕</button></div><div class="modal-body">' + bodyHtml + '</div></div>';
+    function close() { document.removeEventListener('keydown', onKey); wrap.remove(); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap || e.target.closest('[data-close]')) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    return { el: wrap, close: close };
+  }
+
+  function setTabs(root, onChange) {
+    var group = root.getAttribute('data-group') || '';
+    var buttons = root.querySelectorAll('[data-tab]');
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        buttons.forEach(function (x) { x.classList.toggle('active', x === b); });
+        document.querySelectorAll('[data-panel]').forEach(function (p) {
+          if ((p.getAttribute('data-group') || '') !== group) return;
+          p.classList.toggle('hidden', p.getAttribute('data-panel') !== b.getAttribute('data-tab'));
+        });
+        if (onChange) onChange(b.getAttribute('data-tab'));
+      });
+    });
+  }
+
+  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  /**
+   * Renders the dashboard into `el`. Shared by the Guest page and the Dev preview.
+   * state.selected: student id or '' for all.
+   */
+  var charts = {};
+  function renderDashboard(el, d, state) {
+    var cats = d.categories;
+    var sel = state.selected || '';
+    var students = d.students;
+    var selStudent = students.filter(function (s) { return s.id === sel; })[0] || null;
+    var focus = selStudent ? { totalDone: selStudent.totalDone, totalTarget: selStudent.totalTarget, pct: selStudent.pct,
+      done: selStudent.done, target: selStudent.target, ach: selStudent.ach } : d.totals;
+
+    var html = '';
+    if (d.notice) html += '<div class="notice info">' + esc(d.notice) + '</div>';
+    html += '<div class="grid kpis" style="margin-bottom:16px">';
+    html += kpi('Hari berjalan', d.day + ' / ' + d.durationDays, 'Mulai ' + esc(d.startDate || '-'));
+    html += kpi(selStudent ? 'Unit selesai' : 'Total unit selesai', fmtNum(focus.totalDone), 'Target ' + fmtNum(focus.totalTarget));
+    html += kpi('Capaian', fmtPct(focus.pct), selStudent ? esc(selStudent.name) : 'Semua santri');
+    if (d.expectedToday != null) {
+      html += selStudent
+        ? kpi('Target milestone hari ini', fmtNum(d.expectedToday), statusPill(selStudent.status))
+        : kpi('Sesuai target', d.totals.onTrack + ' / ' + students.length, d.totals.behind + ' santri di bawah target hari ini (' + fmtNum(d.expectedToday) + ' unit)');
+    }
+    cats.forEach(function (c) {
+      html += kpi(esc(c.label), fmtNum(focus.done[c.key]) + ' / ' + fmtNum(focus.target[c.key]), fmtPct(focus.ach[c.key]));
+    });
+    html += '</div>';
+
+    html += '<div class="card"><div class="chips">';
+    html += '<button class="chip' + (sel ? '' : ' active') + '" data-student="">Semua</button>';
+    students.forEach(function (s) {
+      html += '<button class="chip' + (sel === s.id ? ' active' : '') + '" data-student="' + esc(s.id) + '">' +
+        esc(s.nickname || s.name.split(' ')[0]) + '</button>';
+    });
+    html += '</div>';
+    html += selStudent ? studentReportsHtml(selStudent, state) : studentTableHtml(students, cats);
+    html += '</div>';
+
+    html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
+    html += '<div class="card"><h2>Progres kumulatif ' + (selStudent ? '– ' + esc(selStudent.name) : '(rata-rata santri)') +
+      '</h2><div class="chart-box"><canvas id="chartLine"></canvas></div></div>';
+    if (!selStudent) html += '<div class="card"><h2>Unit selesai per santri</h2><div class="chart-box"><canvas id="chartBar"></canvas></div></div>';
+    html += '</div>';
+
+    html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
+    html += '<div class="card"><h2>Milestone target</h2><div class="table-wrap"><table><thead><tr><th>Hari ke</th><th class="num">Jml Unit</th></tr></thead><tbody>';
+    d.milestones.forEach(function (m) {
+      html += '<tr' + (d.day >= m.day ? ' class="selected"' : '') + '><td>' + m.day + '</td><td class="num">' + fmtNum(m.units) + '</td></tr>';
+    });
+    if (!d.milestones.length) html += '<tr><td colspan="2" class="muted">Belum ada milestone.</td></tr>';
+    html += '</tbody></table></div></div>';
+    if (d.showRecent && !selStudent) {
+      var rec = d.recent.filter(function (r) { return !sel || r.studentId === sel; }).slice(0, 15);
+      html += '<div class="card"><h2>Aktivitas terbaru</h2><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Nama</th><th>Perangkat</th><th class="num">Unit</th></tr></thead><tbody>';
+      rec.forEach(function (r) {
+        html += '<tr><td>' + esc(r.date) + '</td><td>' + esc(r.studentName) + '</td><td>' + esc(r.category) + '</td><td class="num">' + fmtNum(r.units) + '</td></tr>';
+      });
+      if (!rec.length) html += '<tr><td colspan="4" class="muted">Belum ada aktivitas.</td></tr>';
+      html += '</tbody></table></div></div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+
+    el.querySelectorAll('[data-student]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.selected = b.getAttribute('data-student');
+        renderDashboard(el, d, state);
+      });
+    });
+    bindRequests(el, d, state);
+    drawCharts(d, selStudent);
+  }
+
+  // "Semua": one row per santri with done / target / achievement per device type.
+  function studentTableHtml(students, cats) {
+    var html = '<div class="table-wrap"><table><thead><tr><th rowspan="2">No.</th><th rowspan="2">Nama</th>';
+    html += '<th class="group" colspan="' + cats.length + '">Done</th><th class="group" colspan="' + cats.length + '">Target</th>';
+    html += '<th class="group" colspan="' + cats.length + '">Achievement</th><th class="group" colspan="3">Akumulasi</th><th rowspan="2">Status</th></tr><tr>';
+    for (var g = 0; g < 3; g++) cats.forEach(function (c) { html += '<th class="num">' + esc(c.label) + '</th>'; });
+    html += '<th class="num">Prog.</th><th class="num">%</th><th></th></tr></thead><tbody>';
+    students.forEach(function (s, i) {
+      html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td>';
+      cats.forEach(function (c) { html += '<td class="num">' + fmtNum(s.done[c.key]) + '</td>'; });
+      cats.forEach(function (c) { html += '<td class="num">' + fmtNum(s.target[c.key]) + '</td>'; });
+      cats.forEach(function (c) { html += '<td class="num">' + fmtPct(s.ach[c.key]) + '</td>'; });
+      html += '<td class="num">' + fmtNum(s.totalDone) + '</td><td class="num">' + fmtPct(s.pct) + '</td>';
+      html += '<td><div class="bar"><i style="width:' + Math.min(100, s.pct || 0) + '%"></i></div></td>';
+      html += '<td>' + statusPill(s.status) + '</td></tr>';
+    });
+    if (!students.length) html += '<tr><td colspan="' + (6 + cats.length * 3) + '" class="muted">Belum ada santri.</td></tr>';
+    return html + '</tbody></table></div>';
+  }
+
+  // One santri selected: every unit they reported through the form, newest first.
+  function studentReportsHtml(s, state) {
+    var reps = s.reports || [], ask = canRequest(state, s);
+    var html = '<h2>Unit yang dikerjakan – ' + esc(s.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' aktivitas)</span></h2>';
+    html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Perangkat</th><th>Detail</th><th class="num">Unit</th>' + (ask ? '<th></th>' : '') + '</tr></thead><tbody>';
+    reps.forEach(function (r, i) {
+      var det = (r.details || []).map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
+      html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + esc(r.category) + '</td><td>' + (det || '<span class="muted">–</span>') +
+        '</td><td class="num">' + fmtNum(r.units) + '</td>' + requestCell(ask, r) + '</tr>';
+    });
+    if (!reps.length) html += '<tr><td colspan="' + (ask ? 6 : 5) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
+    return html + '</tbody></table></div>';
+  }
+
+  // "Ajukan perubahan" appears only on the logged-in santri's own rows (state.requestFor = their id).
+  function canRequest(state, s) { return !!(state && state.onRequest && state.requestFor && state.requestFor === s.id); }
+  function requestCell(ask, r) {
+    return ask ? '<td class="actions"><button class="btn sm" type="button" data-req="' + esc(r.id) + '" data-req-date="' + esc(r.date) + '">Ajukan perubahan</button></td>' : '';
+  }
+  function bindRequests(el, d, state) {
+    el.querySelectorAll('[data-req]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.onRequest({ reportId: b.getAttribute('data-req'), date: b.getAttribute('data-req-date'), stageKey: d.stage && d.stage.key });
+      });
+    });
+  }
+
+  /**
+   * Recap for stages without unit targets (Stage 0): report count per santri, answer tallies,
+   * and, when a santri is picked, only that santri's own reports.
+   */
+  function renderRecap(el, d, state) {
+    var sel = state.selected || '';
+    var students = d.students;
+    var selStudent = students.filter(function (s) { return s.id === sel; })[0] || null;
+    var html = '<div class="grid kpis" style="margin-bottom:16px">';
+    if (selStudent) {
+      html += kpi('Aktivitas', fmtNum(selStudent.count), esc(selStudent.name));
+      html += kpi('Terakhir aktif', esc(selStudent.last || '–'), '');
+    } else {
+      html += kpi('Total aktivitas', fmtNum(d.totals.reports), 'Semua santri');
+      html += kpi('Santri sudah aktif', d.totals.studentsReported + ' / ' + d.totals.students, '');
+    }
+    html += '</div>';
+
+    html += '<div class="card"><div class="chips">';
+    html += '<button class="chip' + (sel ? '' : ' active') + '" data-student="">Semua</button>';
+    students.forEach(function (s) {
+      html += '<button class="chip' + (sel === s.id ? ' active' : '') + '" data-student="' + esc(s.id) + '">' + esc(s.nickname || s.name.split(' ')[0]) + '</button>';
+    });
+    html += '</div>';
+    if (selStudent) {
+      var reps = selStudent.reports, ask = canRequest(state, selStudent);
+      html += '<h2>Aktivitas – ' + esc(selStudent.name) + ' <span class="muted" style="font-weight:400">(' + reps.length + ' aktivitas)</span></h2>';
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Tanggal</th><th>Detail</th>' + (ask ? '<th></th>' : '') + '</tr></thead><tbody>';
+      reps.forEach(function (r, i) {
+        var det = r.details.map(function (x) { return '<div><span class="muted">' + esc(x.label) + ':</span> ' + esc(x.value) + '</div>'; }).join('');
+        html += '<tr><td>' + (reps.length - i) + '</td><td>' + esc(r.date) + '</td><td>' + (det || '<span class="muted">–</span>') + '</td>' + requestCell(ask, r) + '</tr>';
+      });
+      if (!reps.length) html += '<tr><td colspan="' + (ask ? 4 : 3) + '" class="muted">Belum ada aktivitas dari santri ini.</td></tr>';
+    } else {
+      html += '<div class="table-wrap"><table><thead><tr><th>No.</th><th>Nama</th><th class="num">Jumlah aktivitas</th><th>Terakhir aktif</th></tr></thead><tbody>';
+      students.forEach(function (s, i) {
+        html += '<tr><td>' + (i + 1) + '</td><td>' + esc(s.name) + '</td><td class="num">' + fmtNum(s.count) + '</td><td>' +
+          (s.last ? esc(s.last) : '<span class="pill behind">Belum ada aktivitas</span>') + '</td></tr>';
+      });
+      if (!students.length) html += '<tr><td colspan="4" class="muted">Belum ada santri.</td></tr>';
+    }
+    html += '</tbody></table></div></div>';
+
+    if (!selStudent && d.tallies.length) {
+      html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">';
+      d.tallies.forEach(function (t) {
+        var max = Math.max.apply(null, t.items.map(function (x) { return x.count; }).concat([1]));
+        html += '<div class="card"><h2>' + esc(t.label) + '</h2><table><tbody>';
+        t.items.forEach(function (it) {
+          html += '<tr><td>' + esc(it.option) + '</td><td class="num">' + fmtNum(it.count) + '</td>' +
+            '<td style="width:35%"><div class="bar"><i style="width:' + Math.round(100 * it.count / max) + '%"></i></div></td></tr>';
+        });
+        html += '</tbody></table></div>';
+      });
+      html += '</div>';
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('[data-student]').forEach(function (b) {
+      b.addEventListener('click', function () { state.selected = b.getAttribute('data-student'); renderRecap(el, d, state); });
+    });
+    bindRequests(el, d, state);
+  }
+
+  /** Draws either dashboard kind returned by apiGetDashboard / apiDevGetDashboard. */
+  function renderAnyDashboard(el, d, state) {
+    if (d.kind === 'recap') renderRecap(el, d, state); else renderDashboard(el, d, state);
+  }
+
+  function kpi(label, value, hint) {
+    return '<div class="kpi"><div class="label">' + label + '</div><div class="value">' + value + '</div><div class="hint">' + (hint || '') + '</div></div>';
+  }
+
+  function statusPill(s) {
+    if (s === 'on-track') return '<span class="pill ok">Sesuai target</span>';
+    if (s === 'behind') return '<span class="pill behind">Di bawah target</span>';
+    return '<span class="pill none">–</span>';
+  }
+
+  // Chart.js is only needed by the Stage 1 dashboard, so it is fetched the first time a chart is drawn.
+  var chartLib = null;
+  function loadChartLib() {
+    if (typeof Chart !== 'undefined') return Promise.resolve();
+    if (!chartLib) chartLib = new Promise(function (resolve, reject) {
+      var sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+      sc.onload = resolve;
+      sc.onerror = function () { chartLib = null; reject(new Error('Grafik gagal dimuat.')); };
+      document.head.appendChild(sc);
+    });
+    return chartLib;
+  }
+
+  function drawCharts(d, selStudent) {
+    loadChartLib().then(function () {
+      if (document.getElementById('chartLine')) drawChartsNow(d, selStudent);
+    }).catch(function () { /* charts are extra; the tables already show the numbers */ });
+  }
+
+  function drawChartsNow(d, selStudent) {
+    Object.keys(charts).forEach(function (k) { charts[k].destroy(); });
+    charts = {};
+    var accent = cssVar('--accent'), muted = cssVar('--muted'), border = cssVar('--border'), text = cssVar('--text');
+    Chart.defaults.color = muted;
+    Chart.defaults.borderColor = border;
+    var labels = [];
+    for (var i = 1; i <= d.seriesLen; i++) labels.push(i);
+    var actual;
+    if (selStudent) actual = selStudent.cumulative.slice();
+    else {
+      var n = d.students.length || 1;
+      actual = labels.map(function (_, idx) {
+        var sum = 0;
+        d.students.forEach(function (s) { sum += s.cumulative[idx] || 0; });
+        return Math.round(sum / n * 10) / 10;
+      });
+    }
+    // Do not draw actual progress into the future.
+    actual = actual.map(function (v, idx) { return idx < d.day ? v : null; });
+    charts.line = new Chart(document.getElementById('chartLine'), {
+      type: 'line',
+      data: { labels: labels, datasets: [
+        { label: 'Aktual', data: actual, borderColor: accent, backgroundColor: accent, pointRadius: 0, borderWidth: 2.5, spanGaps: true },
+        { label: 'Target milestone', data: d.plan, borderColor: muted, borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 }
+      ] },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        scales: { x: { title: { display: true, text: 'Hari ke' } }, y: { beginAtZero: true, title: { display: true, text: 'Unit' } } },
+        plugins: { legend: { labels: { color: text } } } }
+    });
+    var palette = ['#0f6e5a', '#3b82c4', '#c27c0e', '#8e5bd1', '#c2410c', '#64748b'];
+    if (!document.getElementById('chartBar')) return;
+    charts.bar = new Chart(document.getElementById('chartBar'), {
+      type: 'bar',
+      data: { labels: d.students.map(function (s) { return s.nickname || s.name.split(' ')[0]; }),
+        datasets: d.categories.map(function (c, i) {
+          return { label: c.label, data: d.students.map(function (s) { return s.done[c.key]; }), backgroundColor: palette[i % palette.length], stack: 'u' };
+        }) },
+      options: { maintainAspectRatio: false, indexAxis: d.students.length > 10 ? 'y' : 'x',
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+        plugins: { legend: { labels: { color: text } } } }
+    });
+  }
+</script>

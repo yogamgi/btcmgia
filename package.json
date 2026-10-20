@@ -1,0 +1,10 @@
+{
+  "name": "btcmgia",
+  "private": true,
+  "description": "BTC - Boarding Technician Camp (Google Apps Script web app)",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "for f in apps-script/*.gs; do node --check --input-type=commonjs < \"$f\" || exit 1; done",
+    "build": "node scripts/build.js && node scripts/build-guest.js"
+  }
+}

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <header class="top"><div><h1>Stage 1 - Akademi BTC</h1><div class="sub">Setup pertama</div></div></header>
+  <main>
+    <section class="card" style="max-width:560px;margin:24px auto">
+      <? if (!isOwner) { ?>
+        <h2>Aplikasi belum siap</h2>
+        <p class="muted">Aplikasi ini belum di-setup oleh developer. Silakan coba lagi nanti.</p>
+      <? } else { ?>
+        <h2>Setup aplikasi</h2>
+        <p class="muted">Halaman ini hanya muncul sekali, untuk akun pemilik. Setelah disimpan, aplikasi membuat folder data, spreadsheet registry, dan batch pertama.</p>
+        <div id="msg"></div>
+        <form id="setupForm">
+          <label class="field"><span class="lbl">Folder Google Drive untuk data</span>
+            <span class="help">Tempel link folder (drive.google.com/drive/folders/…). Kosongkan untuk membuat folder baru "Akademi BTC - Stage 1".</span>
+            <input id="rootFolder" placeholder="https://drive.google.com/drive/folders/..."></label>
+          <label class="field"><span class="lbl">Nama batch pertama</span><input id="batchName" value="Batch 4" required></label>
+          <label class="field"><span class="lbl">Hari pertama Stage 1</span><input id="batchStart" type="date" required></label>
+          <label class="field"><span class="lbl">Password Dev</span><span class="help">Minimal 6 karakter. Dipakai untuk masuk ke halaman Dev.</span>
+            <input id="pw" type="password" autocomplete="new-password" required></label>
+          <label class="field"><span class="lbl">Ulangi password</span><input id="pw2" type="password" autocomplete="new-password" required></label>
+          <button class="btn primary" type="submit" id="go">Simpan &amp; buat aplikasi</button>
+        </form>
+      <? } ?>
+    </section>
+  </main>
+  <div id="toast"></div>
+  <?!= include('Shared'); ?>
+  <script>
+    var form = document.getElementById('setupForm');
+    if (form) {
+      document.getElementById('batchStart').value = new Date().toISOString().slice(0, 10);
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var msg = document.getElementById('msg'), btn = document.getElementById('go');
+        var pw = document.getElementById('pw').value;
+        if (pw.length < 6) { msg.innerHTML = '<div class="notice err">Password minimal 6 karakter.</div>'; return; }
+        if (pw !== document.getElementById('pw2').value) { msg.innerHTML = '<div class="notice err">Password tidak sama.</div>'; return; }
+        btn.disabled = true; btn.textContent = 'Menyiapkan…';
+        call('apiRunSetup', {
+          rootFolder: document.getElementById('rootFolder').value, password: pw,
+          firstBatchName: document.getElementById('batchName').value, firstBatchStart: document.getElementById('batchStart').value
+        }).then(function () {
+          form.classList.add('hidden');
+          return call('apiAppUrl').then(function (url) {
+            msg.innerHTML = '<div class="notice ok">Setup selesai.</div><p><a class="btn primary" target="_top" href="' + esc(url) +
+              '?mode=dev">Buka halaman Dev</a> <a class="btn" target="_top" href="' + esc(url) + '">Buka halaman Guest</a></p>';
+          });
+        }).catch(function (err) {
+          msg.innerHTML = '<div class="notice err">' + esc(err.message) + '</div>';
+          btn.disabled = false; btn.textContent = 'Simpan & buat aplikasi';
+        });
+      });
+    }
+  </script>
+</body>
+</html>
